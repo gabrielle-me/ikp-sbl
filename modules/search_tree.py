@@ -62,7 +62,7 @@ class BidirectionalSBL(PRMBase):
 
     DEFAULT_CONFIG = {
         "max_nodes": 500,
-        "eta": 6.0,            # Step size for tree expansion (maximum distance between nodes)
+        "eta": 2.0,            # Step size for tree expansion (maximum distance between nodes)
     }
 
     def __init__(self, coll_checker):
