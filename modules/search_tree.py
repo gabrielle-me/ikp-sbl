@@ -56,7 +56,8 @@ class SearchTree:
 
 
 class BidirectionalSBL(PRMBase):
-    """SBL planner that grows two trees lazily without local line collision checking."""
+    """SBL planner that grows two trees lazily without local collision checking."""
+    #TODO: check if distance should change based on narrow passage or free space (kappa at the end?)
 
     DEFAULT_CONFIG = {
         "max_nodes": 500,
@@ -83,7 +84,8 @@ class BidirectionalSBL(PRMBase):
         path_a = tree_a.path_to_root(node_a)
         path_b = tree_b.path_to_root(node_b)
         return path_a + list(reversed(path_b))
-
+    
+    #TODO: some nodes near to each other are not connected
     def _try_connect(
         self,
         active_tree: SearchTree,
@@ -155,10 +157,9 @@ class BidirectionalSBL(PRMBase):
 
                     q_pos = np.clip(q_pos, lower, upper)
                     q_pos_list = q_pos.tolist()
-
-                    # Check only if the newly sampled node itself is collision-free
-                    if not self._collisionChecker.pointInCollision(q_pos_list):
-                        return tree.add_node(q_pos_list, parent=v_id)
+                    
+                    # Add node to tree without collision check
+                    return tree.add_node(q_pos_list, parent=v_id)
 
             raise RuntimeError("Unable to sample a valid point within the configured limits")
 
