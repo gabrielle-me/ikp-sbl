@@ -6,7 +6,7 @@ This code is part of a series of notebooks regarding  "Introduction to robot pat
 License is based on Creative Commons: Attribution-NonCommercial 4.0 International (CC BY-NC 4.0) (pls. check: http://creativecommons.org/licenses/by-nc/4.0/)
 """
 
-from IPPerfMonitor import IPPerfMonitor
+from lecture_examples.IPPerfMonitor import IPPerfMonitor
 
 from shapely.geometry import Point, Polygon, LineString
 from shapely import plotting
