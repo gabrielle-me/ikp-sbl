@@ -29,7 +29,8 @@ class SearchTree:
         self.node_ids.append(node_id)
         self.parent[node_id] = parent
         if parent is not None:
-            self.graph.add_edge(parent, node_id)
+            # Set the edge status attribute to 'unknown' by default
+            self.graph.add_edge(parent, node_id, status="unknown")
         self._next_node_id += 1
         return node_id
 
@@ -85,7 +86,6 @@ class BidirectionalSBL(PRMBase):
         path_b = tree_b.path_to_root(node_b)
         return path_a + list(reversed(path_b))
     
-    #TODO: some nodes near to each other are not connected
     def _try_connect(
         self,
         active_tree: SearchTree,
@@ -93,75 +93,53 @@ class BidirectionalSBL(PRMBase):
         new_node_id: int,
         config: Dict[str, float],
     ) -> Optional[List[List[float]]]:
-        """SBL: Connect trees if within radius rho (WITHOUT checking edge collision)."""
-        new_position = active_tree.position(new_node_id)
-        nearest_passive_id, distance = passive_tree.nearest(new_position)
+        """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
+        If d(v, v') < ρ, create bridge and return candidate path.
+        """
+        v_pos = active_tree.position(new_node_id)
+        rho = float(config["rho"])
         
-        # Check if the passive tree has a node close enough to connect
-        if distance < float(config["rho"]):
-            return self._connection_path(active_tree, new_node_id, passive_tree, nearest_passive_id)
-        return None
+        # Find closest node in passive tree
+        v_prime_id, distance = passive_tree.nearest(v_pos)
+        
+        # Only connect if within radius ρ
+        if distance >= rho:
+            return None
+        
+        # Add bridge connecting the two trees
+        # Add the connection bridge to the active tree's graph with 'unknown' status
+        active_tree.graph.add_edge(new_node_id, v_prime_id, status="unknown")
+        
+        # Return candidate path for lazy collision checking
+        return self._connection_path(active_tree, new_node_id, passive_tree, v_prime_id)
 
     def _expand_tree(
             self,
             tree: SearchTree,
             config: Dict[str, float],
         ) -> int:
-            """SBL: Pick a node weighted inversely by its local density, 
-            then sample a new free point within its local neighborhood radius rho.
-            """
-            rho = float(config["rho"])
+            """SBL Tree expansion using elements from the RRT lecture code (IPRRT.py)."""
+            eta = float(config["eta"])
             
-            # --- 1. COMPUTE CELL-BASED DENSITY FOR EVERY NODE ---
-            # We define a cell size matching our neighborhood radius rho
-            cell_size = rho 
+            # Random sample within the environment limits
+            # Dynamically handles n-DoF limits
+            q_rand = np.array(self._getRandomFreePosition(), dtype=float)
             
-            # Track which cell each node belongs to, and count cell populations
-            cell_counts = {}
-            node_cells = {}
+            # Choose a near node v from the tree based on distance to q_rand
+            v_id, distance = tree.nearest(q_rand.tolist())
+            v_pos = np.array(tree.position(v_id), dtype=float)
             
-            for v_id in tree.node_ids:
-                pos = np.array(tree.position(v_id), dtype=float)
-                # Find the discrete grid coordinates for this node's position
-                cell_coord = tuple(np.floor(pos / cell_size).astype(int))
-                
-                node_cells[v_id] = cell_coord
-                cell_counts[cell_coord] = cell_counts.get(cell_coord, 0) + 1
-                
-            # Compute weights inversely proportional to cell density: weight = 1 / eta(v)
-            # (Where eta(v) is the number of nodes sharing that node's grid cell)
-            weights = [1.0 / cell_counts[node_cells[v_id]] for v_id in tree.node_ids]
-            
-            # --- 2. SAMPLE A NODE BASED ON WEIGHTS ---
-            limits = self._collisionChecker.getEnvironmentLimits()
-            for _ in range(1000):
-                # Pick a node v using the calculated density-based weights
-                v_id = random.choices(tree.node_ids, weights=weights, k=1)[0]
-                v_pos = np.array(tree.position(v_id), dtype=float)
-                
-                # 3. Sample a random configuration q uniformly from B(v, rho)
-                dim = len(v_pos)
-                offset = np.random.uniform(-rho, rho, size=dim)
-                
-                # Ensure the sample falls strictly within the hypersphere of radius rho
-                if np.linalg.norm(offset) <= rho:
-                    q_pos = np.array(v_pos + offset, dtype=float)
-                    lower = np.array([limits[0][0], limits[1][0]], dtype=float)
-                    upper = np.array([limits[0][1], limits[1][1]], dtype=float)
-
-                    # Keep points strictly inside the workspace bounds.
-                    # We shrink the interval slightly so the exact boundary values are avoided.
-                    margin = 0.1
-                    lower = lower + margin
-                    upper = upper - margin
-
-                    q_pos = np.clip(q_pos, lower, upper)
-                    q_pos_list = q_pos.tolist()
-                    
-                    # Add node to tree without collision check
-                    return tree.add_node(q_pos_list, parent=v_id)
-
-            raise RuntimeError("Unable to sample a valid point within the configured limits")
+            # Expand with step size eta
+            if distance <= eta:
+                q_new = q_rand
+            else:
+                # Step exactly distance eta along the direction vector from v_pos to q_rand
+                direction = (q_rand - v_pos) / distance
+                q_new = v_pos + direction * eta
+        
+            # Add the new node to the tree if it is not in collision
+            if not self._collisionChecker.pointInCollision(q_new.tolist()):
+                return tree.add_node(q_new.tolist(), parent=v_id)
 
     def grow_trees(
         self,
