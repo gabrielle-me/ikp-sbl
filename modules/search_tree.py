@@ -93,9 +93,7 @@ class BidirectionalSBL(PRMBase):
         new_node_id: Optional[int],
         config: Dict[str, float],
     ) -> Optional[List[List[float]]]:
-        """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
-        If d(v, v') < ρ, create bridge and return candidate path.
-        """
+        """SBL: Connect v (most recent node in active tree) to closest v' in passive tree."""
         if new_node_id is None:
             return None
 
@@ -105,19 +103,9 @@ class BidirectionalSBL(PRMBase):
         # Find closest node in passive tree
         v_prime_id, distance = passive_tree.nearest(v_pos)
         
-        # Only connect if within step size threshold (eta)
+        # Only connect if within threshold
         if distance >= eta:
             return None
-        
-        # Add a bridge node to the active tree graph that mirrors the nearest
-        # passive-tree node so the edge can be represented and plotted correctly.
-        if v_prime_id not in active_tree.graph.nodes:
-            active_tree.graph.add_node(v_prime_id, pos=passive_tree.position(v_prime_id))
-        else:
-            active_tree.graph.nodes[v_prime_id]["pos"] = passive_tree.position(v_prime_id)
-
-        # Add the bridge edge with status "unknown".
-        active_tree.graph.add_edge(new_node_id, v_prime_id, status="unknown")
 
         # Return candidate path for lazy collision checking.
         return self._connection_path(active_tree, new_node_id, passive_tree, v_prime_id)
