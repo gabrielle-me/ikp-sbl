@@ -62,7 +62,7 @@ class BidirectionalSBL(PRMBase):
 
     DEFAULT_CONFIG = {
         "max_nodes": 500,
-        "rho": 6.0,            # Neighborhood radius threshold
+        "eta": 2.0,            # Step size for tree expansion (maximum distance between nodes)
     }
 
     def __init__(self, coll_checker):
@@ -90,34 +90,31 @@ class BidirectionalSBL(PRMBase):
         self,
         active_tree: SearchTree,
         passive_tree: SearchTree,
-        new_node_id: int,
+        new_node_id: Optional[int],
         config: Dict[str, float],
     ) -> Optional[List[List[float]]]:
-        """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
-        If d(v, v') < ρ, create bridge and return candidate path.
-        """
+        """SBL: Connect v (most recent node in active tree) to closest v' in passive tree."""
+        if new_node_id is None:
+            return None
+
         v_pos = active_tree.position(new_node_id)
-        rho = float(config["rho"])
+        eta = float(config["eta"])
         
         # Find closest node in passive tree
         v_prime_id, distance = passive_tree.nearest(v_pos)
         
-        # Only connect if within radius ρ
-        if distance >= rho:
+        # Only connect if within threshold
+        if distance >= eta:
             return None
-        
-        # Add bridge connecting the two trees
-        # Add the connection bridge to the active tree's graph with 'unknown' status
-        active_tree.graph.add_edge(new_node_id, v_prime_id, status="unknown")
-        
-        # Return candidate path for lazy collision checking
+
+        # Return candidate path for lazy collision checking.
         return self._connection_path(active_tree, new_node_id, passive_tree, v_prime_id)
 
     def _expand_tree(
             self,
             tree: SearchTree,
             config: Dict[str, float],
-        ) -> int:
+        ) -> Optional[int]:
             """SBL Tree expansion using elements from the RRT lecture code (IPRRT.py)."""
             eta = float(config["eta"])
             
