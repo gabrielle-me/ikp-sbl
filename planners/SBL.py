@@ -229,11 +229,15 @@ class BidirectionalSBL(PRMBase):
         for node_id in range(0, len(connection) - 1):
             node1 = np.array(connection[node_id])
             node2 = np.array(connection[node_id + 1])
-            node1_uid = self._get_node_uid(node1)
-            node2_uid = self._get_node_uid(node2)
+            node1_uid, node1_tree = self._get_node_uid(node1)
+            node2_uid, node2_tree = self._get_node_uid(node2)
+
+            # Doublecheck if both nodes belong to same tree
+            if node1_tree != node2_tree:
+                raise ValueError(f"Nodes belong to different trees: {node1_uid}: {node1_tree}, {node2_uid}: {node2_tree}")
             
             # Check if edge was already validated
-            try:
+            if node1_tree == "start":
                 # start tree
                 edge_status = tree_start.graph[node1_uid][node2_uid]["status"]
                 if edge_status == "valid":
@@ -242,17 +246,14 @@ class BidirectionalSBL(PRMBase):
                 elif edge_status == "invalid":
                     return True, tree_start, tree_goal
                 
-            except:
-                try:
-                    # goal tree
-                    edge_status = tree_goal.graph[node1_uid][node2_uid]["status"]
-                    if edge_status == "valid":
-                        # Jump to next iteration (next edge)
-                        continue
-                    elif edge_status == "invalid":
-                        return True, tree_start, tree_goal
-                except:
-                    raise KeyError("Edge not found")
+            else:
+                # goal tree
+                edge_status = tree_goal.graph[node1_uid][node2_uid]["status"]
+                if edge_status == "valid":
+                    # Jump to next iteration (next edge)
+                    continue
+                elif edge_status == "invalid":
+                    return True, tree_start, tree_goal
 
 
 
@@ -262,15 +263,12 @@ class BidirectionalSBL(PRMBase):
             #TODO: add option to visualize checked points
 
             # mark edge as invalid
-            try:
+            if node1_tree == "start":
                 # start tree
                 tree_start.graph[node1_uid][node2_uid]["status"] = ["valid","invalid"][collision]
-            except:
-                try:
-                    # goal tree
-                    tree_goal.graph[node1_uid][node2_uid]["status"] = ["valid","invalid"][collision]
-                except:
-                    raise KeyError(f"Nodes {node1}, {node2} not in start and goal tree")
+            else:
+                # goal tree
+                tree_goal.graph[node1_uid][node2_uid]["status"] = ["valid","invalid"][collision]
                 
             # return if collision found
             if collision:
@@ -282,9 +280,9 @@ class BidirectionalSBL(PRMBase):
     
 
 
-    def _get_node_uid(self, node):
+    def _get_node_uid(self, node) -> Tuple[str, str]:
         """
-        TODO: (GABI) Return node UID
+        TODO: (GABI) Return node UID and the tree it belongs to
         """
         raise NotImplementedError
     
