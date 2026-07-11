@@ -22,7 +22,6 @@ class BidirectionalSBL(PRMBase):
 
     DEFAULT_CONFIG = {
         "max_nodes": 500,
-        "rho": 6.0,            # Neighborhood radius threshold
         "eta": 1.,
         "iterations": 10,
         "epsilon": 0.05,
