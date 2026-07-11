@@ -18,16 +18,21 @@ class SearchTree:
         self._next_node_id = 0
         self.root: int = self.add_node(root_position, parent=None)
 
+    def _make_node_uid(self, node_id: int, position: List[float]) -> int:
+        coord_parts = [str(coord).replace('.', '') for coord in position]
+        return int(f"{node_id}{''.join(coord_parts)}")
+
     def add_node(self, position: List[float], parent: Optional[int]) -> int:
         node_id = self._next_node_id
-        self.graph.add_node(node_id, pos=position)
-        self.node_ids.append(node_id)
-        self.parent[node_id] = parent
+        node_uid = self._make_node_uid(node_id, position)
+        self.graph.add_node(node_uid, pos=position)
+        self.node_ids.append(node_uid)
+        self.parent[node_uid] = parent
         if parent is not None:
             # Set the edge status attribute to 'unknown' by default
-            self.graph.add_edge(parent, node_id, status="unknown")
+            self.graph.add_edge(parent, node_uid, status="unknown")
         self._next_node_id += 1
-        return node_id
+        return node_uid
 
     def position(self, node_id: int) -> List[float]:
         return self.graph.nodes[node_id]["pos"]

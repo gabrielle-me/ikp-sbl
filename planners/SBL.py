@@ -50,7 +50,8 @@ class BidirectionalSBL(PRMBase):
         return path_a + list(reversed(path_b))
     
     def _is_edge_valid(self, tree: SearchTree, config1: List[float], config2: List[float]) -> bool:
-        """Check if an edge between two configurations is valid (not marked invalid)."""
+        """Check if an edge between two configurations is valid (not marked invalid).
+        Returns True if the edge is valid or unknown, False if it is invalid."""
         config1_tuple = tuple(config1)
         config2_tuple = tuple(config2)
         
@@ -74,8 +75,7 @@ class BidirectionalSBL(PRMBase):
         config: Dict[str, float],
     ) -> Optional[List[List[float]]]:
         """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
-        If d(v, v') < ρ, create bridge and return candidate path.
-        Only returns paths that use valid (non-invalid) edges.
+        Only returns paths that use non-invalid edges.
         """
         v_pos = active_tree.position(new_node_id)
         eta = float(config["eta"])
@@ -83,7 +83,7 @@ class BidirectionalSBL(PRMBase):
         # Find closest node in passive tree
         v_prime_id, distance = passive_tree.nearest(v_pos)
         
-        # Only connect if within radius ρ
+        # Only connect if within step size eta
         if distance >= eta:
             return None
         
@@ -111,7 +111,7 @@ class BidirectionalSBL(PRMBase):
             self,
             tree: SearchTree,
             config: Dict[str, Number],
-        ) -> int:
+        ) -> Optional[int]:
             """SBL Tree expansion using elements from the RRT lecture code (IPRRT.py)."""
             eta = float(config["eta"])
             
@@ -136,6 +136,19 @@ class BidirectionalSBL(PRMBase):
                 return tree.add_node(q_new.tolist(), parent=v_id)
             
             return None
+
+    def _get_node_uid(self, node) -> Tuple[int, str]:
+        if isinstance(node, np.ndarray):
+            node_tuple = tuple(node.tolist())
+        else:
+            node_tuple = tuple(node)
+
+        for tree_name, tree in [("start", self._tree_start), ("goal", self._tree_goal)]:
+            for node_uid, data in tree.graph.nodes(data=True):
+                if tuple(data["pos"]) == node_tuple:
+                    return node_uid, tree_name
+
+        raise ValueError(f"Node {node_tuple} not found in either tree")
 
     def grow_trees(
         self,
@@ -187,6 +200,8 @@ class BidirectionalSBL(PRMBase):
         checked_start, checked_goal = self._checkStartGoal([start], [goal])
         tree_start = SearchTree(checked_start[0])
         tree_goal = SearchTree(checked_goal[0])
+        self._tree_start = tree_start
+        self._tree_goal = tree_goal
         return tree_start, tree_goal
 
     def iterate_trees(self, tree_start: SearchTree, tree_goal: SearchTree, config: Dict[str, float]) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
@@ -254,8 +269,6 @@ class BidirectionalSBL(PRMBase):
                 elif edge_status == "invalid":
                     return True, tree_start, tree_goal
 
-
-
             # Check collision otherwise
             collision, checkedPoints = adaptive_local_collision_check(node1, node2, self._collisionChecker, config["kappa_max"], config["epsilon"])
 
@@ -273,15 +286,7 @@ class BidirectionalSBL(PRMBase):
             if collision:
                 return True, tree_start, tree_goal
             
-
-        # no invalid edges and not collisions found
+        # no invalid edges and no collisions found
         return False, tree_start, tree_goal
     
-
-
-    def _get_node_uid(self, node) -> Tuple[str, str]:
-        """
-        TODO: (GABI) Return node UID and the tree it belongs to
-        """
-        raise NotImplementedError
     
