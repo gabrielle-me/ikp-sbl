@@ -1,5 +1,5 @@
 import numpy as np
-from IPEnvironment import CollisionChecker
+from lecture_examples.IPEnvironment import CollisionChecker
 
 def adaptive_local_collision_check(node1: np.ndarray, node2: np.ndarray, coll_checker: CollisionChecker, kappa: int, kappa_max: int, epsilon: float) -> bool:
     """
