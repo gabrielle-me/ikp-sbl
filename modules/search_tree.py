@@ -67,8 +67,7 @@ class BidirectionalSBL(PRMBase):
 
     DEFAULT_CONFIG = {
         "max_nodes": 500,
-        "rho": 6.0,            # Neighborhood radius threshold
-        "eta": 1.
+        "eta": 2.0,            # Step size for tree expansion (maximum distance between nodes)
     }
 
     def __init__(self, coll_checker):
@@ -113,48 +112,31 @@ class BidirectionalSBL(PRMBase):
         self,
         active_tree: SearchTree,
         passive_tree: SearchTree,
-        new_node_id: int,
+        new_node_id: Optional[int],
         config: Dict[str, float],
     ) -> Optional[List[List[float]]]:
-        """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
-        If d(v, v') < ρ, create bridge and return candidate path.
-        Only returns paths that use valid (non-invalid) edges.
-        """
+        """SBL: Connect v (most recent node in active tree) to closest v' in passive tree."""
+        if new_node_id is None:
+            return None
+
         v_pos = active_tree.position(new_node_id)
         eta = float(config["eta"])
         
         # Find closest node in passive tree
         v_prime_id, distance = passive_tree.nearest(v_pos)
         
-        # Only connect if within radius ρ
+        # Only connect if within threshold
         if distance >= eta:
             return None
-        
-        # Get candidate path
-        candidate_path = self._connection_path(active_tree, new_node_id, passive_tree, v_prime_id)
-        
-        # Verify all edges in the path are valid
-        for idx in range(len(candidate_path) - 1):
-            config1 = candidate_path[idx]
-            config2 = candidate_path[idx + 1]
-            
-            # Check validity in both trees
-            if idx < len(active_tree.path_to_root(new_node_id)) - 1:
-                # This segment is in active tree
-                if not self._is_edge_valid(active_tree, config1, config2):
-                    return None
-            else:
-                # This segment is in passive tree
-                if not self._is_edge_valid(passive_tree, config1, config2):
-                    return None
-        
-        return candidate_path
+
+        # Return candidate path for lazy collision checking.
+        return self._connection_path(active_tree, new_node_id, passive_tree, v_prime_id)
 
     def _expand_tree(
             self,
             tree: SearchTree,
             config: Dict[str, float],
-        ) -> int:
+        ) -> Optional[int]:
             """SBL Tree expansion using elements from the RRT lecture code (IPRRT.py)."""
             eta = float(config["eta"])
             
