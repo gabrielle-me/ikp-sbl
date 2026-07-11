@@ -2,6 +2,7 @@
 
 import random
 from typing import Dict, List, Optional, Tuple
+from numbers import Number
 
 import networkx as nx
 import numpy as np
@@ -32,7 +33,7 @@ class BidirectionalSBL(PRMBase):
         super(BidirectionalSBL, self).__init__(coll_checker)
 
     @staticmethod
-    def _merge_config(config: Optional[Dict[str, float]]) -> Dict[str, float]:
+    def _merge_config(config: Optional[Dict[str, Number]]) -> Dict[str, Number]:
         merged = BidirectionalSBL.DEFAULT_CONFIG.copy()
         if config:
             merged.update(config)
@@ -110,7 +111,7 @@ class BidirectionalSBL(PRMBase):
     def _expand_tree(
             self,
             tree: SearchTree,
-            config: Dict[str, float],
+            config: Dict[str, Number],
         ) -> int:
             """SBL Tree expansion using elements from the RRT lecture code (IPRRT.py)."""
             eta = float(config["eta"])
@@ -141,7 +142,7 @@ class BidirectionalSBL(PRMBase):
         self,
         start: List[float],
         goal: List[float],
-        config: Optional[Dict[str, float]] = None,
+        config: Optional[Dict[str, Number]] = None,
     ) -> Tuple[nx.Graph, nx.Graph, Optional[List[List[float]]]]:
         """Grow two search trees using SBL.
 
@@ -158,7 +159,7 @@ class BidirectionalSBL(PRMBase):
         self,
         start: List[float],
         goal: List[float],
-        config: Optional[Dict[str, float]] = None,
+        config: Optional[Dict[str, Number]] = None,
         ) -> Tuple[nx.Graph, nx.Graph, Optional[List[List[float]]]]:
         """Grow two search trees using SBL.
 
@@ -181,7 +182,7 @@ class BidirectionalSBL(PRMBase):
         self,
         start: List[float],
         goal: List[float],
-        config: Optional[Dict[str, float]] = None,
+        config: Optional[Dict[str, Number]] = None,
         ):
         config = self._merge_config(config)
         checked_start, checked_goal = self._checkStartGoal([start], [goal])
@@ -189,7 +190,7 @@ class BidirectionalSBL(PRMBase):
         tree_goal = SearchTree(checked_goal[0])
         return tree_start, tree_goal
 
-    def iterate_trees(self, tree_start: SearchTree, tree_goal: SearchTree, config: dict) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
+    def iterate_trees(self, tree_start: SearchTree, tree_goal: SearchTree, config: Dict[str, float]) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
         """
         Perform 1 iteration of expanding tree and checking connectivity
         """
@@ -219,7 +220,7 @@ class BidirectionalSBL(PRMBase):
             self,
             tree_start: SearchTree, tree_goal: SearchTree,
             connection: List[List[float]],
-            config: dict
+            config: Dict[str, Number]
         ) -> Tuple[bool, SearchTree, SearchTree]:
         """
         Adaptive collision check for a candidate path.
@@ -256,7 +257,9 @@ class BidirectionalSBL(PRMBase):
 
 
             # Check collision otherwise
-            collision = adaptive_local_collision_check(node1, node2, self._collisionChecker, 1, config["kappa_max"], config["epsilon"])
+            collision, checkedPoints = adaptive_local_collision_check(node1, node2, self._collisionChecker, config["kappa_max"], config["epsilon"])
+
+            #TODO: add option to visualize checked points
 
             # mark edge as invalid
             try:
