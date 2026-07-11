@@ -1,4 +1,4 @@
-"""SearchTee class for all planners"""
+"""SearchTree class for all planners"""
 
 from typing import Dict, List, Optional, Tuple
 
