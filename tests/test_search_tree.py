@@ -1,4 +1,4 @@
-from modules.search_tree import BidirectionalSBL, SearchTree
+from modules.OLD_search_tree import BidirectionalSBL, SearchTree
 from lecture_examples.IPEnvironment import CollisionChecker
 
 
