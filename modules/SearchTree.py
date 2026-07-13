@@ -1,6 +1,6 @@
 """SearchTree class for all planners"""
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import networkx as nx
 import numpy as np
@@ -54,3 +54,25 @@ class SearchTree:
             path.append(self.position(current))
             current = self.parent[current]
         return list(reversed(path))
+
+    def to_checkpoint(self) -> Dict[str, Any]:
+        return {
+            "root": self.root,
+            "next_node_id": self._next_node_id,
+            "parent": {str(node_id): parent_id for node_id, parent_id in self.parent.items()},
+            "node_ids": self.node_ids,
+            "graph": nx.node_link_data(self.graph),
+        }
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: Dict[str, Any]) -> "SearchTree":
+        tree = cls.__new__(cls)
+        tree.graph = nx.node_link_graph(checkpoint["graph"])
+        tree.parent = {
+            int(node_id): parent_id if parent_id is None else int(parent_id)
+            for node_id, parent_id in checkpoint["parent"].items()
+        }
+        tree.node_ids = [int(node_id) for node_id in checkpoint["node_ids"]]
+        tree._next_node_id = int(checkpoint["next_node_id"])
+        tree.root = int(checkpoint["root"])
+        return tree

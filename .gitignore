@@ -219,3 +219,7 @@ __marimo__/
 
 #MAC
 .DS_Store
+
+# Roboterprogrammierung (eigene)
+gifs/
+checkpoints/
