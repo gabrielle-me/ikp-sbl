@@ -62,6 +62,7 @@ class BidirectionalSBL(PRMBase):
     DEFAULT_CONFIG = {
         "max_nodes": 500,
         "rho": 6.0,            # Neighborhood radius threshold
+        "goal_bias": 0.05,     # Probability to bias expansion toward the other tree root
     }
 
     def __init__(self, coll_checker):
@@ -105,12 +106,21 @@ class BidirectionalSBL(PRMBase):
     def _expand_tree(
             self,
             tree: SearchTree,
+            passive_tree: SearchTree,
             config: Dict[str, float],
         ) -> int:
             """SBL: Pick a node weighted inversely by its local density, 
             then sample a new free point within its local neighborhood radius rho.
+            With probability goal_bias, bias q_rand toward the passive tree root.
             """
             rho = float(config["rho"])
+            goal_bias = float(config.get("goal_bias", 0.0))
+            
+            # --- 0. SAMPLE TARGET FOR EXPANSION ---
+            if random.random() < goal_bias:
+                q_rand = np.array(passive_tree.position(passive_tree.root), dtype=float)
+            else:
+                q_rand = None
             
             # --- 1. COMPUTE CELL-BASED DENSITY FOR EVERY NODE ---
             # We define a cell size matching our neighborhood radius rho
@@ -134,34 +144,49 @@ class BidirectionalSBL(PRMBase):
             
             # --- 2. SAMPLE A NODE BASED ON WEIGHTS ---
             limits = self._collisionChecker.getEnvironmentLimits()
-            for _ in range(1000):
-                # Pick a node v using the calculated density-based weights
-                v_id = random.choices(tree.node_ids, weights=weights, k=1)[0]
-                v_pos = np.array(tree.position(v_id), dtype=float)
-                
-                # 3. Sample a random configuration q uniformly from B(v, rho)
-                dim = len(v_pos)
-                offset = np.random.uniform(-rho, rho, size=dim)
-                
-                # Ensure the sample falls strictly within the hypersphere of radius rho
-                if np.linalg.norm(offset) <= rho:
-                    q_pos = np.array(v_pos + offset, dtype=float)
-                    lower = np.array([limits[0][0], limits[1][0]], dtype=float)
-                    upper = np.array([limits[0][1], limits[1][1]], dtype=float)
-
-                    # Keep points strictly inside the workspace bounds.
-                    # We shrink the interval slightly so the exact boundary values are avoided.
-                    margin = 0.1
-                    lower = lower + margin
-                    upper = upper - margin
-
-                    q_pos = np.clip(q_pos, lower, upper)
-                    q_pos_list = q_pos.tolist()
+            if q_rand is None:
+                for _ in range(1000):
+                    # Pick a node v using the calculated density-based weights
+                    v_id = random.choices(tree.node_ids, weights=weights, k=1)[0]
+                    v_pos = np.array(tree.position(v_id), dtype=float)
                     
-                    # Add node to tree without collision check
-                    return tree.add_node(q_pos_list, parent=v_id)
+                    # 3. Sample a random configuration q uniformly from B(v, rho)
+                    dim = len(v_pos)
+                    offset = np.random.uniform(-rho, rho, size=dim)
+                    
+                    # Ensure the sample falls strictly within the hypersphere of radius rho
+                    if np.linalg.norm(offset) <= rho:
+                        q_pos = np.array(v_pos + offset, dtype=float)
+                        lower = np.array([limits[0][0], limits[1][0]], dtype=float)
+                        upper = np.array([limits[0][1], limits[1][1]], dtype=float)
 
-            raise RuntimeError("Unable to sample a valid point within the configured limits")
+                        # Keep points strictly inside the workspace bounds.
+                        # We shrink the interval slightly so the exact boundary values are avoided.
+                        margin = 0.1
+                        lower = lower + margin
+                        upper = upper - margin
+
+                        q_pos = np.clip(q_pos, lower, upper)
+                        q_pos_list = q_pos.tolist()
+                        
+                        # Add node to tree without collision check
+                        return tree.add_node(q_pos_list, parent=v_id)
+
+                raise RuntimeError("Unable to sample a valid point within the configured limits")
+            
+            # If goal bias is triggered, expand toward the passive tree root.
+            v_id, distance = tree.nearest(q_rand.tolist())
+            v_pos = np.array(tree.position(v_id), dtype=float)
+
+            if distance <= rho:
+                q_new = q_rand
+            else:
+                direction = (q_rand - v_pos) / distance
+                q_new = v_pos + direction * rho
+
+            q_new_list = np.clip(q_new, np.array([limits[0][0], limits[1][0]], dtype=float) + 0.1,
+                                 np.array([limits[0][1], limits[1][1]], dtype=float) - 0.1).tolist()
+            return tree.add_node(q_new_list, parent=v_id)
 
     def grow_trees(
         self,
