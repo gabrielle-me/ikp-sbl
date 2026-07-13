@@ -95,7 +95,7 @@ def export_gif(
     gif_path: str,
     scene: Optional[Dict[str, Any]] = None,
     scene_limits: Optional[np.ndarray] = None,
-    fps: int = 2,
+    fps: int = 1,
 ) -> Path:
     """Export a recorded SBL checkpoint sequence as an animated GIF."""
     checkpoint_data = load_sbl_checkpoints(checkpoint_path)

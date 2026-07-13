@@ -30,7 +30,7 @@ def _as_graph(tree):
     return tree
 
 
-def plot_tree(ax:Axes, tree, color="blue", line_style="-", node_size=20, alpha=0.6, tree_type: str = None):
+def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: str = None):
     """Plot a search tree with edge styling based on planner status.
 
     Edge colors:
@@ -60,6 +60,7 @@ def plot_tree(ax:Axes, tree, color="blue", line_style="-", node_size=20, alpha=0
             "valid": [],
             "invalid": [],
             "collision": [],
+            "unreachable": [],
         }
 
         for u, v, data in edges_with_data:
@@ -73,20 +74,34 @@ def plot_tree(ax:Axes, tree, color="blue", line_style="-", node_size=20, alpha=0
 
         color_map = {
             "unknown": "yellow",
+            "unreachable": "orange",
             "valid": "green",
             "invalid": "red",
             "collision": "purple",
         }
+        line_style_map = {
+            "unknown": "-",
+            "unreachable": ":",
+            "valid": "-",
+            "invalid": "-",
+            "collision": "-",
+        }
+
 
         for key, segments in segments_by_key.items():
             if not segments:
                 continue
+
+            # Use a slightly different alpha for unreachable parts
+            # of the tree to make them visually distinguishable.
+            edge_alpha = 0.7 if key == "invalid" else alpha
+
             collection = LineCollection(
                 segments,
                 colors=color_map[key],
                 linewidths=1.2,
-                alpha=alpha,
-                linestyles=line_style,
+                alpha=edge_alpha,
+                linestyles=line_style_map[key],
             )
             ax.add_collection(collection)
 

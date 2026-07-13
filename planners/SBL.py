@@ -215,16 +215,19 @@ class BidirectionalSBL(PRMBase):
         checkpoint_frames: List[Dict] = []
 
         for n_iter in range(self.config["iterations"]):
+            print(f"Iteration {n_iter}")
             start_tree, goal_tree, path = self.iterate_trees(tree_start, tree_goal)
             collision = False
             collision_index = None
-            if path is not None:
+            if path:
                 collision, collision_index, start_tree, goal_tree = self.collision_check_solution(start_tree, goal_tree, path)
-            if ax is not None:
+            else:
+                print("no path found")
+            if ax:
                 # draw iteration
                 draw.plot_iteration(ax, start_tree, goal_tree, path, collision, collision_index)
 
-            if checkpoint_path is not None:
+            if checkpoint_path:
                 checkpoint_frames.append(
                     self._build_checkpoint_frame(
                         n_iter,
@@ -300,6 +303,9 @@ class BidirectionalSBL(PRMBase):
         Returns whether collision happens (True) & returns start/goal tree with marked edges
         """
         unchecked_nodes = []
+        # Determine the tree from which the candidate path originates (first node)
+        first_node = np.array(connection[0])
+        _, first_node_tree = self._get_node_uid(first_node)
         for node_id in range(0, len(connection) - 1):
             node1 = np.array(connection[node_id])
             node2 = np.array(connection[node_id + 1])
@@ -346,7 +352,7 @@ class BidirectionalSBL(PRMBase):
             else:
                 raise ValueError(f"Unknown tree: {node1_tree}")
 
-        for segment_index, node1, node2 in unchecked_nodes:
+        for idx, (segment_index, node1, node2) in enumerate(unchecked_nodes):
             # Check collisions of unknown edges
             collision, checkedPoints = adaptive_local_collision_check(node1.coordinates, node2.coordinates, self._collisionChecker, self.config["kappa_max"], self.config["epsilon"])
 
@@ -363,9 +369,17 @@ class BidirectionalSBL(PRMBase):
             # return if collision found
             if collision:
                 print(f"Collision found between {node1} - {node2}")
+                # Soft pruning: if the collision occurs in the same tree from which
+                # the candidate path originates, mark the subtree behind node2 as
+                # unreachable (all its edges set to invalid).
+                if first_node_tree == node2.tree:
+                    target_tree = tree_start if node2.tree == "start" else tree_goal
+                    target_tree.mark_unreachable_subtree(node2.id)
+                print(f"#Collision checks: {idx}")
                 return True, segment_index, tree_start, tree_goal
             
         # no invalid edges and no collisions found
+        print(f"#Collision checks: {idx}")
         return False, None, tree_start, tree_goal
     
     

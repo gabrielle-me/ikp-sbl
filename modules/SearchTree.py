@@ -46,6 +46,37 @@ class SearchTree:
         kd_tree = cKDTree(positions)
         dist, index = kd_tree.query(position, k=1)
         return self.node_ids[int(index)], float(dist)
+    
+    def mark_unreachable_subtree(self, root_node_id: int) -> None:
+        """Soft-prune helper: mark all edges in the subtree rooted at ``root_node_id`` as unreachable.
+
+        This does not remove nodes or edges from the tree, but ensures that all
+        edges in the subtree are never used again for candidate paths. The
+        traversal is restricted to *descendants* of ``root_node_id`` by using
+        the ``parent`` mapping to orient the undirected NetworkX graph.
+        """
+
+        # Depth-first traversal over the subtree starting at ``root_node_id``.
+        # We avoid building a global children map and instead derive children
+        # on-the-fly from graph neighbors whose parent is the current node.
+        stack: List[int] = [root_node_id]
+        visited = set()
+
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+
+            # Mark the edge between the current node and its parent as unreachable
+            parent_id = self.parent.get(current)
+            if parent_id is not None and self.graph.has_edge(parent_id, current):
+                self.graph[parent_id][current]["status"] = "unreachable"
+
+            # Children are exactly those neighbors whose recorded parent is ``current``
+            for neighbor in self.graph.neighbors(current):
+                if self.parent.get(neighbor) == current and neighbor not in visited:
+                    stack.append(neighbor)
 
     def path_to_root(self, node_id: int) -> List[List[float]]:
         path: List[List[float]] = []
