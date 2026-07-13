@@ -109,19 +109,24 @@ class BidirectionalSBL(PRMBase):
 
     def _expand_tree(
             self,
-            tree: SearchTree,
-            config: Dict[str, Number],
+            active_tree: SearchTree,
+            passive_tree: SearchTree,
+            config: Dict[str, Number]
         ) -> Optional[int]:
             """SBL Tree expansion using elements from the RRT lecture code (IPRRT.py)."""
             eta = float(config["eta"])
             
             # Random sample within the environment limits
             # Dynamically handles n-DoF limits
-            q_rand = np.array(self._getRandomFreePosition(), dtype=float)
+            # Goal biasing to sample towards the goal with some probability
+            if random.random() < float(config["goal_bias"]):
+                q_rand = np.array(passive_tree.position(passive_tree.root), dtype=float)
+            else:
+                q_rand = np.array(self._getRandomFreePosition(), dtype=float)
             
             # Choose a near node v from the tree based on distance to q_rand
-            v_id, distance = tree.nearest(q_rand.tolist())
-            v_pos = np.array(tree.position(v_id), dtype=float)
+            v_id, distance = active_tree.nearest(q_rand.tolist())
+            v_pos = np.array(active_tree.position(v_id), dtype=float)
             
             # Expand with step size eta
             if distance <= eta:
@@ -130,10 +135,11 @@ class BidirectionalSBL(PRMBase):
                 # Step exactly distance eta along the direction vector from v_pos to q_rand
                 direction = (q_rand - v_pos) / distance
                 q_new = v_pos + direction * eta
-        
+
+            # TODO: step size smaller when collision, bigger when none
             # Add the new node to the tree if it is not in collision
             if not self._collisionChecker.pointInCollision(q_new.tolist()):
-                return tree.add_node(q_new.tolist(), parent=v_id)
+                return active_tree.add_node(q_new.tolist(), parent=v_id)
             
             return None
 
@@ -216,7 +222,7 @@ class BidirectionalSBL(PRMBase):
                 active, passive = tree_goal, tree_start
 
             # 2. Expand the active tree by creating a single node
-            new_node = self._expand_tree(active, config)
+            new_node = self._expand_tree(active, passive, config)
 
             # If no new node was added (e.g., sample in collision), skip this iteration
             if new_node is None:
