@@ -1,5 +1,6 @@
 from matplotlib.axes import Axes
 from shapely.geometry import Polygon
+from shapely import box, plotting
 import networkx as nx
 from matplotlib.collections import LineCollection
 import numpy as np
@@ -12,6 +13,16 @@ def draw_obstacles(ax:Axes, scene: Dict):
         x, y = obstacle.exterior.xy
         ax.fill(x, y, facecolor="lightcoral", edgecolor="red", alpha=0.5)
 
+def drawScene(ax: Axes, content:Dict, limits:np.ndarray, figsize=(10,10), starts=None, goals=None, lines=None):
+    for key, value in content.items():
+        plotting.plot_polygon(value, add_points=False, ax=ax, color="red")
+    if lines:
+        for start, end, color in lines:
+            ax.plot([start[0], end[0]], [start[1], end[1]], color=color, linewidth=2)
+    if starts:
+        ax.scatter([p[0] for p in starts], [p[1] for p in starts], color="green", s=80, label="start")
+    if goals:
+        ax.scatter([p[0] for p in goals], [p[1] for p in goals], color="orange", s=80, label="goal")
 
 def _as_graph(tree):
     if hasattr(tree, "graph"):
@@ -107,7 +118,7 @@ def plot_path(ax:Axes, path, color="black", annotateOrder = True, collision_inde
         annotatePathOrder(ax,path)
 
 def annotatePathOrder(ax,path):
-        for idx, point in enumerate(path, start=1):
+        for idx, point in enumerate(path):
             ax.annotate(str(idx), (point[0], point[1]), textcoords='offset points', xytext=(5, 5), fontsize=8)
 
 

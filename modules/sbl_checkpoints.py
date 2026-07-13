@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import matplotlib.animation as mpl_animation
 import matplotlib.pyplot as plt
+import numpy as np
 import ipywidgets as widgets
 from IPython.display import display
 
@@ -41,11 +42,10 @@ def load_sbl_checkpoints(checkpoint_path: str) -> Dict[str, Any]:
 
 def _resolve_checkpoint_limits(
     frames: List[Dict[str, Any]],
-    xlim: Optional[List[float]] = None,
-    ylim: Optional[List[float]] = None,
+    scene_limits: Optional[np.ndarray] = None,
 ) -> tuple[List[float], List[float]]:
-    if xlim is not None and ylim is not None:
-        return xlim, ylim
+    if scene_limits is not None:
+        return scene_limits[0], scene_limits[1]
 
     all_x = []
     all_y = []
@@ -87,14 +87,14 @@ def _draw_checkpoint_frame(
     ax.set_ylim(ylim)
     ax.set_title(f"SBL checkpoint frame {frame['iteration']}")
     ax.tick_params(axis="both", which="both", length=0)
+    ax.legend(loc="upper left")
 
 
 def export_gif(
     checkpoint_path: str,
     gif_path: str,
     scene: Optional[Dict[str, Any]] = None,
-    xlim: Optional[List[float]] = None,
-    ylim: Optional[List[float]] = None,
+    scene_limits: Optional[np.ndarray] = None,
     fps: int = 2,
 ) -> Path:
     """Export a recorded SBL checkpoint sequence as an animated GIF."""
@@ -103,7 +103,7 @@ def export_gif(
     if not frames:
         raise ValueError(f"No frames found in checkpoint file: {checkpoint_path}")
 
-    resolved_xlim, resolved_ylim = _resolve_checkpoint_limits(frames, xlim, ylim)
+    resolved_xlim, resolved_ylim = _resolve_checkpoint_limits(frames, scene_limits)
     fig, ax = plt.subplots(figsize=(10, 10))
 
     def update(frame_index: int):
@@ -122,8 +122,7 @@ def export_gif(
 def animate(
     checkpoint_path: str,
     scene: Optional[Dict[str, Any]] = None,
-    xlim: Optional[List[float]] = None,
-    ylim: Optional[List[float]] = None,
+    scene_limits: Optional[np.ndarray] = None,
 ):
     """Create an interactive notebook viewer for recorded SBL checkpoints."""
     checkpoint_data = load_sbl_checkpoints(checkpoint_path)
@@ -132,18 +131,19 @@ def animate(
         raise ValueError(f"No frames found in checkpoint file: {checkpoint_path}")
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    slider = widgets.IntSlider(
+    ax.set_aspect("equal", adjustable="box")
+    slider = widgets.BoundedIntText(
         value=0,
         min=0,
         max=len(frames) - 1,
         step=1,
         description="Frame",
         continuous_update=False,
-        readout=True,
+        #readout=True,
     )
     title = widgets.HTML()
     output = widgets.Output()
-    resolved_xlim, resolved_ylim = _resolve_checkpoint_limits(frames, xlim, ylim)
+    resolved_xlim, resolved_ylim = _resolve_checkpoint_limits(frames, scene_limits)
 
     def render(frame_index: int) -> None:
         frame = frames[frame_index]
