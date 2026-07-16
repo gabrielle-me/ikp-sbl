@@ -18,14 +18,20 @@ from modules.adaptiveLocalCollisionCheck import adaptive_local_collision_check
 
 class BidirectionalSBL(PRMBase):
     """SBL planner that grows two trees lazily without local collision checking."""
-    #TODO: check if distance should change based on narrow passage or free space (kappa at the end?)
 
     DEFAULT_CONFIG = {
         "max_nodes": 500,
-        "eta": 1.,
+        "eta": 1.0,
+        "standard_eta": 1.5,
+        "eta_min": 0.05,
+        "eta_max": 5.0,
+        "eta_shrink": 0.5,
+        "eta_grow": 1.2,
+        "expand_attempts": 5,
         "iterations": 10,
         "epsilon": 0.05,
         "kappa_max": 10,
+        "goal_bias": 0.5
     }
 
     def __init__(self, coll_checker):
@@ -113,34 +119,58 @@ class BidirectionalSBL(PRMBase):
             passive_tree: SearchTree,
             config: Dict[str, Number]
         ) -> Optional[int]:
-            """SBL Tree expansion using elements from the RRT lecture code (IPRRT.py)."""
-            eta = float(config["eta"])
-            
-            # Random sample within the environment limits
-            # Dynamically handles n-DoF limits
-            # Goal biasing to sample towards the goal with some probability
-            if random.random() < float(config["goal_bias"]):
-                q_rand = np.array(passive_tree.position(passive_tree.root), dtype=float)
-            else:
-                q_rand = np.array(self._getRandomFreePosition(), dtype=float)
-            
-            # Choose a near node v from the tree based on distance to q_rand
-            v_id, distance = active_tree.nearest(q_rand.tolist())
-            v_pos = np.array(active_tree.position(v_id), dtype=float)
-            
-            # Expand with step size eta
-            if distance <= eta:
-                q_new = q_rand
-            else:
-                # Step exactly distance eta along the direction vector from v_pos to q_rand
-                direction = (q_rand - v_pos) / distance
-                q_new = v_pos + direction * eta
+            """SBL Tree expansion with adaptive step-size (eta).
 
-            # TODO: step size smaller when collision, bigger when none
-            # Add the new node to the tree if it is not in collision
-            if not self._collisionChecker.pointInCollision(q_new.tolist()):
-                return active_tree.add_node(q_new.tolist(), parent=v_id)
-            
+            On collision, shrink eta and retry. On success, grow eta and return the new node.
+            """
+
+            eta_standard = float(config.get("standard_eta", 2.0))
+
+            # Start with whatever value eta currently is
+            eta = float(config["eta"])
+
+            eta_min = float(config.get("eta_min", 0.05))
+            eta_max = float(config.get("eta_max", 5.0))
+            eta_shrink = float(config.get("eta_shrink", 0.5))
+            eta_grow = float(config.get("eta_grow", 1.2))
+            attempts = int(config.get("expand_attempts", 5))
+
+            for _ in range(attempts):
+                # Random sample within the environment limits with bias toward the passive tree root.
+                if random.random() < float(config["goal_bias"]):
+                    q_rand = np.array(passive_tree.position(passive_tree.root), dtype=float)
+                else:
+                    q_rand = np.array(self._getRandomFreePosition(), dtype=float)
+
+                # Choose a near node v from the tree based on distance to q_rand
+                v_id, distance = active_tree.nearest(q_rand.tolist())
+                v_pos = np.array(active_tree.position(v_id), dtype=float)
+
+                # Expand with step size eta
+                if distance <= eta:
+                    q_new = q_rand
+                else:
+                    direction = (q_rand - v_pos) / distance
+                    q_new = v_pos + direction * eta
+
+                q_new_list = q_new.tolist()
+                if not self._collisionChecker.pointInCollision(q_new_list):
+                    # Success: increase eta for future expansions and return the new node.
+                    # 1. Calculate the grown eta locally
+                    eta_increased = eta * eta_grow
+                    
+                    # 2. Ensure it is AT LEAST the standard value, but AT MOST the max value
+                    eta_final = min(max(eta_increased, eta_standard), eta_max)
+
+                    config["eta"] = eta_final
+                    return active_tree.add_node(q_new_list, parent=v_id)
+
+                # Collision: shrink eta locally for the next attempt in this loop
+                eta = max(eta * eta_shrink, eta_min)
+
+            # --- TOTAL FAILURE (All attempts collided) ---
+            # Reset back to the standard baseline so we don't start the next call at eta_min
+            config["eta"] = eta_standard
             return None
 
     def _get_node_uid(self, node) -> Tuple[int, str]:
