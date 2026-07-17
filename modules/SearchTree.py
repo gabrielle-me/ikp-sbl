@@ -1,6 +1,7 @@
 """SearchTree class for all planners"""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
+from collections import defaultdict
 
 import networkx as nx
 import numpy as np
@@ -14,7 +15,11 @@ class SearchTree:
     def __init__(self, root_position: List[float]):
         self.graph = nx.Graph()
         self.parent: Dict[int, Optional[int]] = {}
-        self.node_ids: List[int] = []
+        self.children: Dict[int, List[int]] = defaultdict(list)
+        
+        self.node_ids: List[int] = []          # All nodes (keeps graph intact for visualization)
+        self.active_nodes: Set[int] = set()    # Valid nodes only (used for KDTree nearest search)
+        
         self._next_node_id = 0
         self.root: int = self.add_node(root_position, parent=None)
 
@@ -26,11 +31,15 @@ class SearchTree:
         node_id = self._next_node_id
         node_uid = self._make_node_uid(node_id, position)
         self.graph.add_node(node_uid, pos=position)
+        
         self.node_ids.append(node_uid)
+        self.active_nodes.add(node_uid) # Node is active by default
         self.parent[node_uid] = parent
+        
         if parent is not None:
-            # Set the edge status attribute to 'unknown' by default
+            self.children[parent].append(node_uid)
             self.graph.add_edge(parent, node_uid, status="unknown")
+            
         self._next_node_id += 1
         return node_uid
 
@@ -38,45 +47,37 @@ class SearchTree:
         return self.graph.nodes[node_id]["pos"]
 
     def nearest(self, position: List[float]) -> Tuple[int, float]:
-        """Returns the nearest node ID and the distance to it."""
-        if len(self.node_ids) == 1:
-            dist = np.linalg.norm(np.array(self.position(self.node_ids[0])) - np.array(position))
-            return self.node_ids[0], float(dist)
-        positions = [self.position(node_id) for node_id in self.node_ids]
+        """Returns the nearest ACTIVE node ID and the distance to it."""
+        if not self.active_nodes:
+            raise ValueError("No active nodes available in the tree.")
+            
+        active_list = list(self.active_nodes)
+        
+        if len(active_list) == 1:
+            dist = np.linalg.norm(np.array(self.position(active_list[0])) - np.array(position))
+            return active_list[0], float(dist)
+            
+        positions = [self.position(node_id) for node_id in active_list]
         kd_tree = cKDTree(positions)
         dist, index = kd_tree.query(position, k=1)
-        return self.node_ids[int(index)], float(dist)
+        
+        return active_list[int(index)], float(dist)
     
-    def mark_unreachable_subtree(self, root_node_id: int) -> None:
-        """Soft-prune helper: mark all edges in the subtree rooted at ``root_node_id`` as unreachable.
+    def invalidate_edge(self, u: int, v: int):
+        """Marks an edge as invalid and deactivates the disconnected subtree."""
+        self.graph[u][v]["status"] = "invalid"
+        
+        # Determine which node is the child in the directed tree
+        child = v if self.parent.get(v) == u else u
+        
+        # Remove the child and all its descendants from active_nodes
+        self._deactivate_subtree(child)
 
-        This does not remove nodes or edges from the tree, but ensures that all
-        edges in the subtree are never used again for candidate paths. The
-        traversal is restricted to *descendants* of ``root_node_id`` by using
-        the ``parent`` mapping to orient the undirected NetworkX graph.
-        """
-
-        # Depth-first traversal over the subtree starting at ``root_node_id``.
-        # We avoid building a global children map and instead derive children
-        # on-the-fly from graph neighbors whose parent is the current node.
-        stack: List[int] = [root_node_id]
-        visited = set()
-
-        while stack:
-            current = stack.pop()
-            if current in visited:
-                continue
-            visited.add(current)
-
-            # Mark the edge between the current node and its parent as unreachable
-            parent_id = self.parent.get(current)
-            if parent_id is not None and self.graph.has_edge(parent_id, current):
-                self.graph[parent_id][current]["status"] = "unreachable"
-
-            # Children are exactly those neighbors whose recorded parent is ``current``
-            for neighbor in self.graph.neighbors(current):
-                if self.parent.get(neighbor) == current and neighbor not in visited:
-                    stack.append(neighbor)
+    def _deactivate_subtree(self, node_id: int):
+        """Recursively removes nodes from the active set."""
+        self.active_nodes.discard(node_id)
+        for child in self.children.get(node_id, []):
+            self._deactivate_subtree(child)
 
     def path_to_root(self, node_id: int) -> List[List[float]]:
         path: List[List[float]] = []
@@ -99,6 +100,8 @@ class SearchTree:
     def from_checkpoint(cls, checkpoint: Dict[str, Any]) -> "SearchTree":
         tree = cls.__new__(cls)
         tree.graph = nx.node_link_graph(checkpoint["graph"])
+        
+        # 1. Restore standard variables
         tree.parent = {
             int(node_id): parent_id if parent_id is None else int(parent_id)
             for node_id, parent_id in checkpoint["parent"].items()
@@ -106,4 +109,19 @@ class SearchTree:
         tree.node_ids = [int(node_id) for node_id in checkpoint["node_ids"]]
         tree._next_node_id = int(checkpoint["next_node_id"])
         tree.root = int(checkpoint["root"])
+        
+        # 2. Reconstruct `children` and `active_nodes`
+        tree.children = defaultdict(list)
+        for child_id, parent_id in tree.parent.items():
+            if parent_id is not None:
+                tree.children[parent_id].append(child_id)
+                
+        # To determine active nodes, we look at the edges. 
+        # Any node belonging to an 'invalid' edge (and its descendants) is inactive.
+        tree.active_nodes = set(tree.node_ids)
+        for u, v, data in tree.graph.edges(data=True):
+            if data.get("status") == "invalid":
+                child = v if tree.parent.get(v) == u else u
+                tree._deactivate_subtree(child)
+                
         return tree
