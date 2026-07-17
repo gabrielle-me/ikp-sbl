@@ -1,11 +1,14 @@
 """Bidirectional search tree utilities for sampling-based motion planning."""
 
+import json
 import random
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from numbers import Number
 
 import networkx as nx
 import numpy as np
+from matplotlib.axes import Axes
 
 try:
     from lecture_examples.IPPRMBase import PRMBase
@@ -13,6 +16,9 @@ except ImportError:
     from IPPRMBase import PRMBase
 
 from modules.SearchTree import SearchTree
+from modules import draw
+from modules.node import Node
+from lecture_examples import IPEnvironment
 from modules.adaptiveLocalCollisionCheck import adaptive_local_collision_check
 
 
@@ -34,7 +40,8 @@ class BidirectionalSBL(PRMBase):
         "goal_bias": 0.5
     }
 
-    def __init__(self, coll_checker):
+    def __init__(self, coll_checker: IPEnvironment.CollisionChecker, config: Optional[Dict[str,Number]] = {}):
+        self.config =  self._merge_config(config)
         super(BidirectionalSBL, self).__init__(coll_checker)
 
     @staticmethod
@@ -78,13 +85,12 @@ class BidirectionalSBL(PRMBase):
         active_tree: SearchTree,
         passive_tree: SearchTree,
         new_node_id: int,
-        config: Dict[str, float],
     ) -> Optional[List[List[float]]]:
         """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
         Only returns paths that use non-invalid edges.
         """
         v_pos = active_tree.position(new_node_id)
-        eta = float(config["eta"])
+        eta = float(self.config["eta"])
         
         # Find closest node in passive tree
         v_prime_id, distance = passive_tree.nearest(v_pos)
@@ -116,28 +122,27 @@ class BidirectionalSBL(PRMBase):
     def _expand_tree(
             self,
             active_tree: SearchTree,
-            passive_tree: SearchTree,
-            config: Dict[str, Number]
+            passive_tree: SearchTree
         ) -> Optional[int]:
             """SBL Tree expansion with adaptive step-size (eta).
 
             On collision, shrink eta and retry. On success, grow eta and return the new node.
             """
 
-            eta_standard = float(config.get("standard_eta", 2.0))
+            eta_standard = float(self.config.get("standard_eta", 2.0))
 
             # Start with whatever value eta currently is
-            eta = float(config["eta"])
+            eta = float(self.config["eta"])
 
-            eta_min = float(config.get("eta_min", 0.05))
-            eta_max = float(config.get("eta_max", 5.0))
-            eta_shrink = float(config.get("eta_shrink", 0.5))
-            eta_grow = float(config.get("eta_grow", 1.2))
-            attempts = int(config.get("expand_attempts", 5))
+            eta_min = float(self.config.get("eta_min", 0.05))
+            eta_max = float(self.config.get("eta_max", 5.0))
+            eta_shrink = float(self.config.get("eta_shrink", 0.5))
+            eta_grow = float(self.config.get("eta_grow", 1.2))
+            attempts = int(self.config.get("expand_attempts", 5))
 
             for _ in range(attempts):
                 # Random sample within the environment limits with bias toward the passive tree root.
-                if random.random() < float(config["goal_bias"]):
+                if random.random() < float(self.config["goal_bias"]):
                     q_rand = np.array(passive_tree.position(passive_tree.root), dtype=float)
                 else:
                     q_rand = np.array(self._getRandomFreePosition(), dtype=float)
@@ -162,7 +167,7 @@ class BidirectionalSBL(PRMBase):
                     # 2. Ensure it is AT LEAST the standard value, but AT MOST the max value
                     eta_final = min(max(eta_increased, eta_standard), eta_max)
 
-                    config["eta"] = eta_final
+                    self.config["eta"] = eta_final
                     return active_tree.add_node(q_new_list, parent=v_id)
 
                 # Collision: shrink eta locally for the next attempt in this loop
@@ -170,7 +175,7 @@ class BidirectionalSBL(PRMBase):
 
             # --- TOTAL FAILURE (All attempts collided) ---
             # Reset back to the standard baseline so we don't start the next call at eta_min
-            config["eta"] = eta_standard
+            self.config["eta"] = eta_standard
             return None
 
     def _get_node_uid(self, node) -> Tuple[int, str]:
@@ -190,8 +195,7 @@ class BidirectionalSBL(PRMBase):
         self,
         start: List[float],
         goal: List[float],
-        config: Optional[Dict[str, Number]] = None,
-    ) -> Tuple[nx.Graph, nx.Graph, Optional[List[List[float]]]]:
+    ) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
         """Grow two search trees using SBL.
 
         Returns:
@@ -199,16 +203,43 @@ class BidirectionalSBL(PRMBase):
             T_goal: search tree rooted at goal
             path: unverified candidate path connecting the two trees
         """
-        tree_start, tree_goal = self.init_trees(start,goal,config)
-        start, goal, path = self.iterate_trees(tree_start, tree_goal, config)
-        return start.graph, goal.graph, path
+        tree_start, tree_goal = self.init_trees(start,goal)
+        start_tree, goal_tree, path = self.iterate_trees(tree_start, tree_goal)
+        return start_tree, goal_tree, path
+
+    def _build_checkpoint_frame(
+        self,
+        iteration: int,
+        collision: bool,
+        collision_index: Optional[int],
+        path: Optional[List[List[float]]],
+        start_tree: SearchTree,
+        goal_tree: SearchTree,
+    ) -> Dict:
+        return {
+            "iteration": iteration,
+            "collision": collision,
+            "collision_index": collision_index,
+            "path": path,
+            "trees": {
+                "start": start_tree.to_checkpoint(),
+                "goal": goal_tree.to_checkpoint(),
+            },
+        }
+
+    def _write_checkpoint_file(self, checkpoint_path: str, payload: Dict) -> None:
+        path = Path(checkpoint_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as file_handle:
+            json.dump(payload, file_handle, indent=2)
     
     def plan_path(
         self,
         start: List[float],
         goal: List[float],
-        config: Optional[Dict[str, Number]] = None,
-        ) -> Tuple[nx.Graph, nx.Graph, Optional[List[List[float]]]]:
+        ax: Optional[Axes],
+        checkpoint_path: Optional[str] = None,
+        ) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
         """Grow two search trees using SBL.
 
         Returns:
@@ -216,23 +247,55 @@ class BidirectionalSBL(PRMBase):
             T_goal: search tree rooted at goal
             path: unverified candidate path connecting the two trees
         """
-        tree_start, tree_goal = self.init_trees(start,goal,config)
+        tree_start, tree_goal = self.init_trees(start,goal)
+        checkpoint_frames: List[Dict] = []
 
-        for n_iter in range(config["iterations"]):
-            start, goal, path = self.iterate_trees(tree_start, tree_goal, config)
-            collision, start, goal = self.collision_check_solution(start, goal, path, config)
+        for n_iter in range(self.config["iterations"]):
+            print(f"Iteration {n_iter}")
+            start_tree, goal_tree, path = self.iterate_trees(tree_start, tree_goal)
+            collision = False
+            collision_index = None
+            if path:
+                collision, collision_index, start_tree, goal_tree = self.collision_check_solution(start_tree, goal_tree, path)
+            else:
+                print("no path found")
+            if ax:
+                # draw iteration
+                draw.plot_iteration(ax, start_tree, goal_tree, path, collision, collision_index)
+
+            if checkpoint_path:
+                checkpoint_frames.append(
+                    self._build_checkpoint_frame(
+                        n_iter,
+                        collision,
+                        collision_index,
+                        path,
+                        start_tree,
+                        goal_tree,
+                    )
+                )
+                self._write_checkpoint_file(
+                    checkpoint_path,
+                    {
+                        "metadata": {
+                            "start": start,
+                            "goal": goal,
+                            "config": self.config,
+                        },
+                        "frames": checkpoint_frames,
+                    },
+                )
+                
             if not collision:
-                return start.graph, goal.graph, path
+                return start_tree, goal_tree, path
             
-        return start.graph, goal.graph, None
+        return start_tree, goal_tree, None
 
     def init_trees(
         self,
         start: List[float],
         goal: List[float],
-        config: Optional[Dict[str, Number]] = None,
         ):
-        config = self._merge_config(config)
         checked_start, checked_goal = self._checkStartGoal([start], [goal])
         tree_start = SearchTree(checked_start[0])
         tree_goal = SearchTree(checked_goal[0])
@@ -240,11 +303,11 @@ class BidirectionalSBL(PRMBase):
         self._tree_goal = tree_goal
         return tree_start, tree_goal
 
-    def iterate_trees(self, tree_start: SearchTree, tree_goal: SearchTree, config: Dict[str, float]) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
+    def iterate_trees(self, tree_start: SearchTree, tree_goal: SearchTree) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
         """
         Perform 1 iteration of expanding tree and checking connectivity
         """
-        for iteration in range(int(config["max_nodes"])):
+        for iteration in range(int(self.config["max_nodes"])):
             # 1. Pick a tree to expand at random with probability P=0.5
             if random.random() < 0.5:
                 active, passive = tree_start, tree_goal
@@ -252,14 +315,14 @@ class BidirectionalSBL(PRMBase):
                 active, passive = tree_goal, tree_start
 
             # 2. Expand the active tree by creating a single node
-            new_node = self._expand_tree(active, passive, config)
+            new_node = self._expand_tree(active, passive, self.config)
 
             # If no new node was added (e.g., sample in collision), skip this iteration
             if new_node is None:
                 continue
 
             # 3. Attempt to connect the trees based on proximity
-            connection = self._try_connect(active, passive, new_node, config)
+            connection = self._try_connect(active, passive, new_node)
             if connection is not None:
                 # Returns the candidate path layout; the next module will evaluate edge validity.
                 return tree_start, tree_goal, connection
@@ -270,12 +333,15 @@ class BidirectionalSBL(PRMBase):
             self,
             tree_start: SearchTree, tree_goal: SearchTree,
             connection: List[List[float]],
-            config: Dict[str, Number]
-        ) -> Tuple[bool, SearchTree, SearchTree]:
+        ) -> Tuple[bool, Optional[int], SearchTree, SearchTree]:
         """
         Adaptive collision check for a candidate path.
         Returns whether collision happens (True) & returns start/goal tree with marked edges
         """
+        unchecked_nodes = []
+        # Determine the tree from which the candidate path originates (first node)
+        first_node = np.array(connection[0])
+        _, first_node_tree = self._get_node_uid(first_node)
         for node_id in range(0, len(connection) - 1):
             node1 = np.array(connection[node_id])
             node2 = np.array(connection[node_id + 1])
@@ -284,45 +350,72 @@ class BidirectionalSBL(PRMBase):
 
             # Doublecheck if both nodes belong to same tree
             if node1_tree != node2_tree:
-                raise ValueError(f"Nodes belong to different trees: {node1_uid}: {node1_tree}, {node2_uid}: {node2_tree}")
+                # if nodes belong to different trees: connection between both trees
+                #raise ValueError(f"Nodes belong to different trees: {node1_uid}: {node1_tree}, {node2_uid}: {node2_tree}")
+                unchecked_nodes.append((node_id,
+                                        Node(node1_uid,node1_tree,node1),
+                                        Node(node2_uid,node2_tree,node2)))
             
             # Check if edge was already validated
-            if node1_tree == "start":
+            elif node1_tree == "start":
                 # start tree
                 edge_status = tree_start.graph[node1_uid][node2_uid]["status"]
                 if edge_status == "valid":
                     # Jump to next iteration (next edge)
                     continue
                 elif edge_status == "invalid":
-                    return True, tree_start, tree_goal
+                    print(f"Invalid edge in start tree between {node1} - {node2}")
+                    return True, node_id, tree_start, tree_goal
+                else:
+                    unchecked_nodes.append((node_id,
+                                            Node(node1_uid,node1_tree,node1),
+                                            Node(node2_uid,node2_tree,node2)))
                 
-            else:
+            elif node1_tree == "goal":
                 # goal tree
                 edge_status = tree_goal.graph[node1_uid][node2_uid]["status"]
                 if edge_status == "valid":
                     # Jump to next iteration (next edge)
                     continue
                 elif edge_status == "invalid":
-                    return True, tree_start, tree_goal
+                    print(f"Invalid edge in goal tree between {node1} - {node2}")
+                    return True, node_id, tree_start, tree_goal
+                else:
+                    unchecked_nodes.append((node_id,
+                                            Node(node1_uid,node1_tree,node1),
+                                            Node(node2_uid,node2_tree,node2)))
+                    
+            else:
+                raise ValueError(f"Unknown tree: {node1_tree}")
 
-            # Check collision otherwise
-            collision, checkedPoints = adaptive_local_collision_check(node1, node2, self._collisionChecker, config["kappa_max"], config["epsilon"])
+        for idx, (segment_index, node1, node2) in enumerate(unchecked_nodes):
+            # Check collisions of unknown edges
+            collision, checkedPoints = adaptive_local_collision_check(node1.coordinates, node2.coordinates, self._collisionChecker, self.config["kappa_max"], self.config["epsilon"])
 
             #TODO: add option to visualize checked points
 
             # mark edge as invalid
-            if node1_tree == "start":
+            if node1.tree == node2.tree == "start":
                 # start tree
-                tree_start.graph[node1_uid][node2_uid]["status"] = ["valid","invalid"][collision]
-            else:
+                tree_start.graph[node1.id][node2.id]["status"] = ["valid","invalid"][collision]
+            elif node1.tree == node2.tree == "goal":
                 # goal tree
-                tree_goal.graph[node1_uid][node2_uid]["status"] = ["valid","invalid"][collision]
+                tree_goal.graph[node1.id][node2.id]["status"] = ["valid","invalid"][collision]
                 
             # return if collision found
             if collision:
-                return True, tree_start, tree_goal
+                print(f"Collision found between {node1} - {node2}")
+                # Soft pruning: if the collision occurs in the same tree from which
+                # the candidate path originates, mark the subtree behind node2 as
+                # unreachable (all its edges set to invalid).
+                if first_node_tree == node2.tree:
+                    target_tree = tree_start if node2.tree == "start" else tree_goal
+                    target_tree.mark_unreachable_subtree(node2.id)
+                print(f"#Collision checks: {idx}")
+                return True, segment_index, tree_start, tree_goal
             
         # no invalid edges and no collisions found
-        return False, tree_start, tree_goal
+        print(f"#Collision checks: {idx}")
+        return False, None, tree_start, tree_goal
     
     
