@@ -1,25 +1,27 @@
 """Bidirectional search tree utilities for sampling-based motion planning."""
 
+# General imports
 import json
 import random
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from numbers import Number
-
 import networkx as nx
 import numpy as np
 from matplotlib.axes import Axes
 
-try:
-    from lecture_examples.IPPRMBase import PRMBase
-except ImportError:
-    from IPPRMBase import PRMBase
+# Lecture examples imports
+from lecture_examples.IPPRMBase import PRMBase
+from lecture_examples.IPPerfMonitor import IPPerfMonitor
+from lecture_examples import IPEnvironment
 
+# Module imports
 from modules.SearchTree import SearchTree
 from modules import draw
 from modules.node import Node
-from lecture_examples import IPEnvironment
 from modules.adaptiveLocalCollisionCheck import adaptive_local_collision_check
+from modules.PlannerStats import PlannerStats
 
 
 class BidirectionalSBL(PRMBase):
@@ -51,7 +53,7 @@ class BidirectionalSBL(PRMBase):
         if config:
             merged.update(config)
         return merged
-    
+
     def _connection_path(
         self,
         tree_a: SearchTree,
@@ -145,6 +147,7 @@ class BidirectionalSBL(PRMBase):
 
         return candidate_path
 
+    @IPPerfMonitor
     def _expand_tree(
             self,
             active_tree: SearchTree,
@@ -196,6 +199,8 @@ class BidirectionalSBL(PRMBase):
                 q_new = v_pos + direction * eta
 
             q_new_list = q_new.tolist()
+            # Quantity of point collision tests
+            self.stats.point_collision_tests += 1
             if not self._collisionChecker.pointInCollision(q_new_list):
                 eta_final = min(max(eta * eta_grow, eta_standard), eta_max)
                 self.config["eta"] = eta_final
@@ -258,16 +263,11 @@ class BidirectionalSBL(PRMBase):
         ax: Optional[Axes],
         checkpoint_path: Optional[str] = None,
         ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]]]:
-        """Grow two search trees using SBL and optionally visualize / record.
-
-        Returns
-        -------
-        T_start, T_goal:
-            The two search trees rooted at ``start`` and ``goal``.
-        path:
-            Unverified candidate path connecting the two trees, represented as
-            a ``List[Node]`` (or ``None`` if no connection was found).
-        """
+        """Grow two search trees using SBL and optionally visualize / record."""
+        # Initialize the clean stats object
+        self.stats = PlannerStats()
+        start_time = time.perf_counter()
+        
         tree_start, tree_goal = self.init_trees(start, goal)
         checkpoint_frames: List[Dict] = []
         
@@ -283,6 +283,10 @@ class BidirectionalSBL(PRMBase):
             collision_index = None
             
             if path:
+                self.stats.candidate_paths_checked += 1
+                if self.stats.time_to_first_candidate is None:
+                    self.stats.time_to_first_candidate = time.perf_counter() - start_time
+                    
                 # Unpack 5 values to support both the graph tools and the repair focus
                 collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, path)
                 
@@ -318,10 +322,34 @@ class BidirectionalSBL(PRMBase):
                     },
                 )
                 
-            # Fixed early termination bug: only return if a valid path actually exists
+            # CHANGED: Instead of returning, we log the success metrics and 'break' out of the loop
             if path and not collision:
-                return start_tree, goal_tree, path
+                self.stats.time_to_first_valid_path = time.perf_counter() - start_time
+                self.stats.success = True
+                
+                # Calculate final path length
+                path_coords = [n.coordinates for n in path]
+                self.stats.path_length = sum(np.linalg.norm(path_coords[i+1] - path_coords[i]) for i in range(len(path_coords)-1))
+                break 
             
+        # --- FINAL STATS CALCULATION ---
+        # This runs after the loop finishes, regardless of whether it succeeded or failed.
+        
+        self.stats.planning_time = time.perf_counter() - start_time
+        self.stats.total_nodes_start_tree = len(start_tree.node_ids)
+        self.stats.total_nodes_goal_tree = len(goal_tree.node_ids)
+        
+        # Tally up all the edge statuses
+        for tree in [start_tree, goal_tree]:
+            for u, v, data in tree.graph.edges(data=True):
+                status = data.get("status", "unknown")
+                if status == "unknown": self.stats.edges_unchecked += 1
+                elif status == "valid": self.stats.edges_valid += 1
+                elif status == "invalid": self.stats.edges_invalid += 1
+                
+        # Finally return the result
+        if self.stats.success:
+            return start_tree, goal_tree, path
         return start_tree, goal_tree, None
 
     def init_trees(
@@ -422,11 +450,15 @@ class BidirectionalSBL(PRMBase):
         # Check collisions of unknown edges lazily
         checks_performed = 0
         for idx, (segment_index, node1, node2) in enumerate(unchecked_nodes):
+            self.stats.line_tests += 1
             checks_performed += 1
             collision, checkedPoints = adaptive_local_collision_check(
                 node1.coordinates, node2.coordinates, 
                 self._collisionChecker, self.config["kappa_max"], self.config["epsilon"]
             )
+            if collision:
+                # Update the stats for aborted adaptive tests
+                self.stats.aborted_adaptive_tests += 1
 
             # TODO: add option to visualize checked points
 
