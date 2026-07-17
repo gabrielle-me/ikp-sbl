@@ -4,7 +4,7 @@ from shapely import box, plotting
 import networkx as nx
 from matplotlib.collections import LineCollection
 import numpy as np
-from typing import Dict
+from typing import Dict, List, Any
 
 
 
@@ -28,6 +28,32 @@ def _as_graph(tree):
     if hasattr(tree, "graph"):
         return tree.graph
     return tree
+
+
+def _path_to_coordinates(path: Any) -> List[np.ndarray]:
+    """Normalize a path representation to a list of coordinate arrays.
+
+    The SBL planner now represents candidate paths as ``List[Node]`` objects,
+    while checkpoint files and some legacy code use raw coordinate lists.
+
+    This helper accepts both forms and always returns a list of NumPy arrays
+    ``[x, y, ...]`` so that plotting routines can work uniformly.
+    """
+
+    if path is None:
+        return []
+
+    if not path:
+        return []
+
+    first = path[0]
+
+    # New representation: list of Node objects with a ``coordinates`` attribute
+    if hasattr(first, "coordinates"):
+        return [np.asarray(node.coordinates) for node in path]
+
+    # Legacy representation: list of coordinate lists/arrays
+    return [np.asarray(p) for p in path]
 
 
 def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: str = None):
@@ -111,18 +137,19 @@ def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: s
 
 
 def plot_path(ax:Axes, path, color="black", annotateOrder = True, collision_index: int = None, collision_color: str = "purple"):
-    if not path:
+    coords = _path_to_coordinates(path)
+    if not coords:
         return
-    path = np.array(path)
+    path_arr = np.vstack(coords)
 
-    if collision_index is None or collision_index < 0 or collision_index >= len(path) - 1:
-        ax.plot(path[:, 0], path[:, 1], marker="o", color=color, linewidth=2.5, markersize=5)
+    if collision_index is None or collision_index < 0 or collision_index >= len(path_arr) - 1:
+        ax.plot(path_arr[:, 0], path_arr[:, 1], marker="o", color=color, linewidth=2.5, markersize=5)
     else:
-        for idx in range(len(path) - 1):
+        for idx in range(len(path_arr) - 1):
             segment_color = collision_color if idx == collision_index else color
             ax.plot(
-                path[idx:idx + 2, 0],
-                path[idx:idx + 2, 1],
+                path_arr[idx:idx + 2, 0],
+                path_arr[idx:idx + 2, 1],
                 marker="o",
                 color=segment_color,
                 linewidth=2.5,
@@ -130,7 +157,7 @@ def plot_path(ax:Axes, path, color="black", annotateOrder = True, collision_inde
             )
 
     if annotateOrder:
-        annotatePathOrder(ax,path)
+        annotatePathOrder(ax, path_arr)
 
 def annotatePathOrder(ax,path):
         for idx, point in enumerate(path):
@@ -149,16 +176,24 @@ def plot_iteration(
     plot_tree(ax, start_tree, color="blue", node_size=35, tree_type="start")
     plot_tree(ax, goal_tree, color="cyan", node_size=35, tree_type="goal")
     
-    if collision:
-        colliding_edge_p1 = path[collision_index]
-        colliding_edge_p2 = path[collision_index+1]
-        ax.plot([colliding_edge_p1[0],colliding_edge_p2[0]],[colliding_edge_p1[1],colliding_edge_p2[1]],color="purple")
+    # Normalize path for plotting: may be a ``List[Node]`` or a list of
+    # coordinate lists/arrays (from checkpoints).
+    coords = _path_to_coordinates(path) if path is not None else []
+
+    if collision and coords:
+        colliding_edge_p1 = coords[collision_index]
+        colliding_edge_p2 = coords[collision_index + 1]
+        ax.plot(
+            [colliding_edge_p1[0], colliding_edge_p2[0]],
+            [colliding_edge_p1[1], colliding_edge_p2[1]],
+            color="purple",
+        )
 
 
-    if path:
+    if coords:
         annotatePathOrder(
             ax,
-            path,
+            np.vstack(coords),
         )
 
     ax.set_aspect("equal", adjustable="box")
