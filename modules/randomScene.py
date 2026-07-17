@@ -63,7 +63,7 @@ def get_free_space(scene:Dict, scene_limits:np.ndarray):
     # 3.  Get the raw free space
     return workspace.difference(all_obstacles)
 
-def get_valid_start_and_goal(free_space):
+def get_valid_start_and_goal(free_space, max_iter=20):
     # Ensure we are working with a MultiPolygon structure for consistency
     if free_space.geom_type == 'Polygon':
         components = [free_space]
@@ -81,22 +81,23 @@ def get_valid_start_and_goal(free_space):
     #display(largest_free_zone)
     
     # Function to randomly sample a point inside a polygon
-    def sample_point_in_poly(polygon):
+    def sample_point_in_poly(polygon, max_iter=20):
         minx, miny, maxx, maxy = polygon.bounds
-        while True:
+        for i in range(max_iter):
             p = Point(np.random.uniform(minx, maxx), np.random.uniform(miny, maxy))
             if polygon.contains(p):
                 return p
+        return None
 
     # Flood/Sample from the exact same connected component
     start_point = sample_point_in_poly(largest_free_zone)
-    goal_point = sample_point_in_poly(largest_free_zone)
     
     # Ensure start and goal aren't on top of each other
-    while start_point.distance(goal_point) < 20.0:  # Minimum distance requirement
+    for i in range(max_iter):
         goal_point = sample_point_in_poly(largest_free_zone)
-        
-    return point2array(start_point), point2array(goal_point), largest_free_zone
+        if start_point.distance(goal_point) < 20.0:  # Minimum distance requirement      
+            return point2array(start_point), point2array(goal_point), largest_free_zone
+    return None, None
 
 def point2array(p: Point) -> np.ndarray:
     return p.coords.__array__()[0]
@@ -106,11 +107,15 @@ def create_random_benchmark(scene_limits: np.ndarray,
                             level: Optional[int]=2,
                             n_polygons: Optional[int]=6,
                             n_strings: Optional[int]=3,
-                            n_points: Optional[int]=6) -> Benchmark:
-    description = f"randomly generated scene\nlimits: {scene_limits}\nRandom seed: {np.random.seed}\n#polygons: {n_polygons}\n#strings: {n_strings}\n#points: {n_points}"
-    scene = create_random_field(scene_limits, n_polygons, n_strings,n_points)
-    free_space = get_free_space(scene, scene_limits)
-    start_point, goal_point, free_zone = get_valid_start_and_goal(free_space)
-    cc = CollisionChecker(scene)
-    return Benchmark(name,cc,[start_point],[goal_point],description,level)
+                            n_points: Optional[int]=6,
+                            max_iter=20) -> Benchmark:
+    for i in range(max_iter):
+        description = f"randomly generated scene\nlimits: {scene_limits}\nRandom seed: {np.random.seed}\n#polygons: {n_polygons}\n#strings: {n_strings}\n#points: {n_points}"
+        scene = create_random_field(scene_limits, n_polygons, n_strings,n_points)
+        free_space = get_free_space(scene, scene_limits)
+        start_point, goal_point, free_zone = get_valid_start_and_goal(free_space)
+        if isinstance(start_point,np.ndarray) and isinstance(goal_point,np.ndarray):
+            cc = CollisionChecker(scene)
+            return Benchmark(name,cc,[start_point],[goal_point],description,level)
+    raise TimeoutError("No starting / goal point found in max. iterations")
     

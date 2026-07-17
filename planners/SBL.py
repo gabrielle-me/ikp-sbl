@@ -51,56 +51,12 @@ class BidirectionalSBL(PRMBase):
             merged.update(config)
         return merged
 
-    def _connection_path(
-        self,
-        tree_a: SearchTree,
-        node_a: int,
-        tree_a_name: str,
-        tree_b: SearchTree,
-        node_b: int,
-        tree_b_name: str,
-    ) -> List[Node]:
-        """Build a connection path as a list of :class:`Node` objects.
-
-        The resulting list starts at the root of ``tree_a`` and ends at the
-        root of ``tree_b`` and encodes, for each configuration along the
-        candidate path, from which tree it originates.
-        """
-
-        path_a_uids = tree_a.path_to_root_uids(node_a)
-        path_b_uids = tree_b.path_to_root_uids(node_b)
-
-        path: List[Node] = []
-
-        # path from tree A (root -> node_a)
-        for uid in path_a_uids:
-            pos = np.array(tree_a.position(uid), dtype=float)
-            path.append(Node(uid, tree_a_name, pos))
-
-        # path from tree B (node_b -> root) in reverse order so that the
-        # concatenated list goes from node_a over to tree_b's root
-        for uid in reversed(path_b_uids):
-            pos = np.array(tree_b.position(uid), dtype=float)
-            path.append(Node(uid, tree_b_name, pos))
-
-        return path
-    
-    def _is_edge_valid(self, tree: SearchTree, node_a: int, node_b: int) -> bool:
-        """Check if an edge between two nodes is valid (not marked invalid).
-        Returns True if the edge is valid or unknown, False if it is invalid."""
-        if not tree.graph.has_edge(node_a, node_b):
-            return True
-        status = tree.graph[node_a][node_b].get('status', 'unknown')
-        return status != 'invalid'
-
     def _try_connect(
         self,
         active_tree: SearchTree,
         passive_tree: SearchTree,
         new_node_id: int,
-        active_tree_name: str,
-        passive_tree_name: str,
-    ) -> Optional[List[Node]]:
+    ) -> Tuple[Optional[List[Node]],Optional[List[Node]]]:
         """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
         Only returns paths that use non-invalid edges.
 
@@ -115,34 +71,15 @@ class BidirectionalSBL(PRMBase):
         
         # Only connect if within step size eta
         if distance >= eta:
-            return None
+            return None, None
+        
         
         # Get candidate path as list of Node objects
-        candidate_path = self._connection_path(
-            active_tree,
-            new_node_id,
-            active_tree_name,
-            passive_tree,
-            v_prime_id,
-            passive_tree_name,
-        )
+        path_a = active_tree.nodes_to_root(new_node_id)
+        path_b = passive_tree.nodes_to_root(v_prime_id)
 
-        # Verify all edges in the path are valid
-        for idx in range(len(candidate_path) - 1):
-            node1 = candidate_path[idx]
-            node2 = candidate_path[idx + 1]
-
-            # Determine which tree to check based on the *source* node
-            if node1.tree == active_tree_name:
-                tree = active_tree
-            else:
-                tree = passive_tree
-
-            # Check if edge is valid
-            if not self._is_edge_valid(tree, node1.id, node2.id):
-                return None
-
-        return candidate_path
+        path_b_rev = path_b[::-1]
+        return path_a, path_b_rev
 
     def _expand_tree(
             self,
@@ -209,7 +146,7 @@ class BidirectionalSBL(PRMBase):
         self,
         start: List[float],
         goal: List[float],
-    ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]]]:
+    ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]], Optional[List[Node]]]:
         """Grow two search trees using SBL.
 
         Returns:
@@ -218,8 +155,7 @@ class BidirectionalSBL(PRMBase):
             path: unverified candidate path connecting the two trees
         """
         tree_start, tree_goal = self.init_trees(start,goal)
-        start_tree, goal_tree, path = self.iterate_trees(tree_start, tree_goal)
-        return start_tree, goal_tree, path
+        return self.iterate_trees(tree_start, tree_goal)
 
     def _build_checkpoint_frame(
         self,
@@ -273,12 +209,14 @@ class BidirectionalSBL(PRMBase):
 
         for n_iter in range(self.config["iterations"]):
             print(f"Iteration {n_iter}")
-            start_tree, goal_tree, path = self.iterate_trees(tree_start, tree_goal)
+            start_tree, goal_tree, path_a, path_b = self.iterate_trees(tree_start, tree_goal)
             collision = False
             collision_index = None
-            if path:
-                collision, collision_index, start_tree, goal_tree = self.collision_check_solution(start_tree, goal_tree, path)
+            if path_a and path_b:
+                collision, collision_index, start_tree, goal_tree = self.collision_check_solution(start_tree, goal_tree, path_a,path_b)
+                path = path_a+path_b
             else:
+                path = None
                 print("no path found")
             if ax:
                 # draw iteration
@@ -318,13 +256,13 @@ class BidirectionalSBL(PRMBase):
         goal: List[float],
         ):
         checked_start, checked_goal = self._checkStartGoal([start], [goal])
-        tree_start = SearchTree(checked_start[0])
-        tree_goal = SearchTree(checked_goal[0])
+        tree_start = SearchTree(checked_start[0], "start")
+        tree_goal = SearchTree(checked_goal[0], "goal")
         self._tree_start = tree_start
         self._tree_goal = tree_goal
         return tree_start, tree_goal
 
-    def iterate_trees(self, tree_start: SearchTree, tree_goal: SearchTree) -> Tuple[SearchTree, SearchTree, Optional[List[Node]]]:
+    def iterate_trees(self, tree_start: SearchTree, tree_goal: SearchTree) -> Tuple[SearchTree, SearchTree, Optional[List[Node]], Optional[List[Node]]]:
         """
         Perform 1 iteration of expanding tree and checking connectivity
         """
@@ -332,10 +270,8 @@ class BidirectionalSBL(PRMBase):
             # 1. Pick a tree to expand at random with probability P=0.5
             if random.random() < 0.5:
                 active, passive = tree_start, tree_goal
-                active_name, passive_name = "start", "goal"
             else:
                 active, passive = tree_goal, tree_start
-                active_name, passive_name = "goal", "start"
 
             # 2. Expand the active tree by creating a single node
             new_node = self._expand_tree(active, passive)
@@ -345,17 +281,18 @@ class BidirectionalSBL(PRMBase):
                 continue
 
             # 3. Attempt to connect the trees based on proximity
-            connection = self._try_connect(active, passive, new_node, active_name, passive_name)
-            if connection is not None:
+            connection_start, connection_goal = self._try_connect(active, passive, new_node)
+            if connection_start and connection_goal:
                 # Returns the candidate path as a list of Node objects
-                return tree_start, tree_goal, connection
+                return tree_start, tree_goal, connection_start, connection_goal
 
-        return tree_start, tree_goal, None
+        return tree_start, tree_goal, None, None
 
     def collision_check_solution(
             self,
             tree_start: SearchTree, tree_goal: SearchTree,
-            connection: List[Node],
+            connection_a: List[Node],
+            connection_b: List[Node],
         ) -> Tuple[bool, Optional[int], SearchTree, SearchTree]:
         """
         Adaptive collision check for a candidate path.
@@ -377,33 +314,64 @@ class BidirectionalSBL(PRMBase):
             Potentially updated trees with edge status / pruning applied.
         """
         unchecked_nodes: List[Tuple[int, Node, Node]] = []
-        # Determine the tree from which the candidate path originates (first node)
-        first_node_tree = connection[0].tree
 
-        for node_idx in range(0, len(connection) - 1):
-            node1 = connection[node_idx]
-            node2 = connection[node_idx + 1]
-
-            if node1.tree != node2.tree:
-                # Nodes belong to different trees: connection between both trees
-                unchecked_nodes.append((node_idx, node1, node2))
+        connection_b_rev = connection_b[::-1]
+        counter_a = 0
+        counter_b = 0
+        a_done = len(connection_a) < 2
+        b_done = len(connection_b) < 2
+        i = 0
+        while (not a_done) or (not b_done):
+            if (not a_done) and (not b_done):
+                # alternating
+                take_path_b = bool(i%2)
+                i+=1
+            elif a_done and (not b_done):
+                # only B
+                take_path_b = True
+            elif (not a_done) and b_done:
+                # only A
+                take_path_b = False
             else:
-                # Check if edge was already validated (same tree)
-                tree = tree_start if node1.tree == "start" else tree_goal
+                # A and B done
+                raise IndexError("loop too long")
 
-                if not tree.graph.has_edge(node1.id, node2.id):
-                    raise Warning(f"Edge not found in {node1.tree} tree between nodes {node1.id} - {node2.id}")
-                    unchecked_nodes.append((node_idx, node1, node2))
-                else:
-                    edge_status = tree.graph[node1.id][node2.id]["status"]
-                    if edge_status == "valid":
-                        # Jump to next iteration (next edge)
-                        continue
-                    elif edge_status == "invalid":
-                        print(f"Invalid edge in {node1.tree} tree between {node1.id} - {node2.id}")
-                        return True, node_idx, tree_start, tree_goal
-                    else:
-                        unchecked_nodes.append((node_idx, node1, node2))
+            if take_path_b:
+                # only sample from B
+                node1= connection_b_rev[counter_b]
+                node_idx = len(connection_a)+len(connection_b)-1-counter_b
+                counter_b += 1
+                #print(f"B: {counter_b} / {len(connection_b)}")
+                node2 = connection_b_rev[counter_b]
+                if counter_b+1 == len(connection_b):
+                    b_done = True
+                    #print("B done")
+            else:
+                # only sample from A
+                node1= connection_a[counter_a]
+                node_idx=counter_a
+                counter_a += 1
+                #print(f"A: {counter_a} / {len(connection_a)}")
+                node2 = connection_a[counter_a]
+                if counter_a+1 == len(connection_a):
+                    a_done = True
+                    #print("A done")
+
+            # Check if edge was already validated (same tree)
+            tree = tree_start if node1.tree == "start" else tree_goal
+
+            edge_status = tree.graph[node1.id][node2.id]["status"]
+            if edge_status == "valid":
+                # Jump to next iteration (next edge)
+                continue
+            elif edge_status == "invalid":
+                print(f"Invalid edge: {node1} - {node2}")
+                return True, node_idx, tree_start, tree_goal
+            else:
+                unchecked_nodes.append((node_idx, node1, node2))
+        
+        # Check connection between trees for collision
+        unchecked_nodes.append((len(connection_a),connection_a[-1],connection_b[0]))
 
         for idx, (segment_index, node1, node2) in enumerate(unchecked_nodes):
             # Check collisions of unknown edges
@@ -427,13 +395,9 @@ class BidirectionalSBL(PRMBase):
                 
             # return if collision found
             if collision:
-                print(f"Collision found between {node1} - {node2}")
-                # Soft pruning: if the collision occurs in the same tree from which
-                # the candidate path originates, mark the subtree behind node2 as
-                # unreachable (all its edges set to invalid).
-                if first_node_tree == node2.tree:
-                    target_tree = tree_start if node2.tree == "start" else tree_goal
-                    target_tree.mark_unreachable_subtree(node2.id)
+                print(f"Colliding edge: {node1} - {node2}")
+                target_tree = tree_start if node2.tree == "start" else tree_goal
+                target_tree.mark_unreachable_subtree(node2.id)
                 print(f"#Collision checks: {idx}")
                 return True, segment_index, tree_start, tree_goal
             

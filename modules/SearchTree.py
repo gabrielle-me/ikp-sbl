@@ -6,17 +6,20 @@ import networkx as nx
 import numpy as np
 from scipy.spatial import cKDTree
 
+from modules import node
+
 
 
 class SearchTree:
     """A lightweight tree wrapper that stores nodes, parents, and positions."""
 
-    def __init__(self, root_position: List[float]):
+    def __init__(self, root_position: List[float], name: str):
         self.graph = nx.Graph()
         self.parent: Dict[int, Optional[int]] = {}
         self.node_ids: List[int] = []
         self._next_node_id = 0
         self.root: int = self.add_node(root_position, parent=None)
+        self.name = name
 
     def _make_node_uid(self, node_id: int, position: List[float]) -> int:
         coord_parts = [str(coord).replace('.', '') for coord in position]
@@ -94,6 +97,11 @@ class SearchTree:
             path.append(current)
             current = self.parent[current]
         return list(reversed(path))
+    
+    def nodes_to_root(self, node_uid) -> List[node.Node]:
+        path_uids = self.path_to_root_uids(node_uid)
+        return [node.Node(uid,self.name,np.array(self.position(uid), dtype=float)) for uid in path_uids]
+        
 
     def to_checkpoint(self) -> Dict[str, Any]:
         return {

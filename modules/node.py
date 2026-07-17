@@ -21,7 +21,7 @@ class Node:
         self.coordinates = coordinates
 
     def __repr__(self) -> str:
-        return f"Node(id={self.id}, tree={self.tree}, coordinates={self.coordinates})"
+        return f"Node({self.tree}, {self.coordinates})"
 
     def __sub__(self, other: "Node") -> np.ndarray:
         return other.coordinates - self.coordinates
