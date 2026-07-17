@@ -56,39 +56,57 @@ class BidirectionalSBL(PRMBase):
         self,
         tree_a: SearchTree,
         node_a: int,
+        tree_a_name: str,
         tree_b: SearchTree,
         node_b: int,
-    ) -> List[List[float]]:
-        path_a = tree_a.path_to_root(node_a)
-        path_b = tree_b.path_to_root(node_b)
-        return path_a + list(reversed(path_b))
+        tree_b_name: str,
+    ) -> List[Node]:
+        """Build a connection path as a list of :class:`Node` objects.
+
+        The resulting list starts at the root of ``tree_a`` and ends at the
+        root of ``tree_b`` and encodes, for each configuration along the
+        candidate path, from which tree it originates.
+        """
+
+        path_a_uids = tree_a.path_to_root_uids(node_a)
+        path_b_uids = tree_b.path_to_root_uids(node_b)
+
+        path: List[Node] = []
+
+        # path from tree A (root -> node_a)
+        for uid in path_a_uids:
+            pos = np.array(tree_a.position(uid), dtype=float)
+            path.append(Node(uid, tree_a_name, pos))
+
+        # path from tree B (node_b -> root) in reverse order so that the
+        # concatenated list goes from node_a over to tree_b's root
+        for uid in reversed(path_b_uids):
+            pos = np.array(tree_b.position(uid), dtype=float)
+            path.append(Node(uid, tree_b_name, pos))
+
+        return path
     
-    def _is_edge_valid(self, tree: SearchTree, config1: List[float], config2: List[float]) -> bool:
-        """Check if an edge between two configurations is valid (not marked invalid).
+    def _is_edge_valid(self, tree: SearchTree, node_a: int, node_b: int) -> bool:
+        """Check if an edge between two nodes is valid (not marked invalid).
         Returns True if the edge is valid or unknown, False if it is invalid."""
-        config1_tuple = tuple(config1)
-        config2_tuple = tuple(config2)
-        
-        for u, v in tree.graph.edges():
-            u_pos = tuple(tree.position(u))
-            v_pos = tuple(tree.position(v))
-            
-            if (u_pos == config1_tuple and v_pos == config2_tuple) or \
-               (u_pos == config2_tuple and v_pos == config1_tuple):
-                status = tree.graph[u][v].get('status', 'unknown')
-                return status != 'invalid'
-        
-        # Edge not found in tree (shouldn't happen for valid path traversal)
-        return True
+        if not tree.graph.has_edge(node_a, node_b):
+            return True
+        status = tree.graph[node_a][node_b].get('status', 'unknown')
+        return status != 'invalid'
 
     def _try_connect(
         self,
         active_tree: SearchTree,
         passive_tree: SearchTree,
         new_node_id: int,
-    ) -> Optional[List[List[float]]]:
+        active_tree_name: str,
+        passive_tree_name: str,
+    ) -> Optional[List[Node]]:
         """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
         Only returns paths that use non-invalid edges.
+
+        Returns a list of :class:`Node` objects describing the candidate
+        connection path.
         """
         v_pos = active_tree.position(new_node_id)
         eta = float(self.config["eta"])
@@ -100,24 +118,31 @@ class BidirectionalSBL(PRMBase):
         if distance >= eta:
             return None
         
-        # Get candidate path
-        candidate_path = self._connection_path(active_tree, new_node_id, passive_tree, v_prime_id)
-        
+        # Get candidate path as list of Node objects
+        candidate_path = self._connection_path(
+            active_tree,
+            new_node_id,
+            active_tree_name,
+            passive_tree,
+            v_prime_id,
+            passive_tree_name,
+        )
+
         # Verify all edges in the path are valid
         for idx in range(len(candidate_path) - 1):
-            config1 = candidate_path[idx]
-            config2 = candidate_path[idx + 1]
-            
-            # Check validity in both trees
-            if idx < len(active_tree.path_to_root(new_node_id)) - 1:
-                # This segment is in active tree
-                if not self._is_edge_valid(active_tree, config1, config2):
-                    return None
+            node1 = candidate_path[idx]
+            node2 = candidate_path[idx + 1]
+
+            # Determine which tree to check based on the *source* node
+            if node1.tree == active_tree_name:
+                tree = active_tree
             else:
-                # This segment is in passive tree
-                if not self._is_edge_valid(passive_tree, config1, config2):
-                    return None
-        
+                tree = passive_tree
+
+            # Check if edge is valid
+            if not self._is_edge_valid(tree, node1.id, node2.id):
+                return None
+
         return candidate_path
 
     def _expand_tree(
@@ -184,18 +209,7 @@ class BidirectionalSBL(PRMBase):
         self.config["eta"] = eta_standard
         return None
 
-    def _get_node_uid(self, node) -> Tuple[int, str]:
-        if isinstance(node, np.ndarray):
-            node_tuple = tuple(node.tolist())
-        else:
-            node_tuple = tuple(node)
 
-        for tree_name, tree in [("start", self._tree_start), ("goal", self._tree_goal)]:
-            for node_uid, data in tree.graph.nodes(data=True):
-                if tuple(data["pos"]) == node_tuple:
-                    return node_uid, tree_name
-
-        raise ValueError(f"Node {node_tuple} not found in either tree")
 
     def grow_trees(
         self,
@@ -212,7 +226,7 @@ class BidirectionalSBL(PRMBase):
         iteration: int,
         collision: bool,
         collision_index: Optional[int],
-        path: Optional[List[List[float]]],
+        path: Optional[List[Node]],
         start_tree: SearchTree,
         goal_tree: SearchTree,
     ) -> Dict:
@@ -220,7 +234,11 @@ class BidirectionalSBL(PRMBase):
             "iteration": iteration,
             "collision": collision,
             "collision_index": collision_index,
-            "path": path,
+            # Store path as plain coordinates for checkpoint visualization.
+            # The planner internally works with ``List[Node]`` objects, but
+            # checkpoints only need the geometric layout, so we serialize each
+            # node as its coordinate vector.
+            "path": [node.coordinates.tolist() for node in path] if path is not None else None,
             "trees": {
                 "start": start_tree.to_checkpoint(),
                 "goal": goal_tree.to_checkpoint(),
@@ -239,13 +257,16 @@ class BidirectionalSBL(PRMBase):
         goal: List[float],
         ax: Optional[Axes],
         checkpoint_path: Optional[str] = None,
-        ) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
-        """Grow two search trees using SBL.
+        ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]]]:
+        """Grow two search trees using SBL and optionally visualize / record.
 
-        Returns:
-            T_start: search tree rooted at start
-            T_goal: search tree rooted at goal
-            path: unverified candidate path connecting the two trees
+        Returns
+        -------
+        T_start, T_goal:
+            The two search trees rooted at ``start`` and ``goal``.
+        path:
+            Unverified candidate path connecting the two trees, represented as
+            a ``List[Node]`` (or ``None`` if no connection was found).
         """
         tree_start, tree_goal = self.init_trees(start, goal)
         checkpoint_frames: List[Dict] = []
@@ -327,8 +348,10 @@ class BidirectionalSBL(PRMBase):
             # 1. Pick a tree to expand at random with probability P=0.5
             if random.random() < 0.5:
                 active, passive = tree_start, tree_goal
+                active_name, passive_name = "start", "goal"
             else:
                 active, passive = tree_goal, tree_start
+                active_name, passive_name = "goal", "start"
 
             # 2. Expand the active tree by creating a single node
             new_node = self._expand_tree(active, passive, self.config, repair_focus)
@@ -340,7 +363,7 @@ class BidirectionalSBL(PRMBase):
             # 3. Attempt to connect the trees based on proximity
             connection = self._try_connect(active, passive, new_node, self.config)
             if connection is not None:
-                # Returns the candidate path layout; the next module will evaluate edge validity.
+                # Returns the candidate path as a list of Node objects
                 return tree_start, tree_goal, connection
 
         return tree_start, tree_goal, None
@@ -400,7 +423,22 @@ class BidirectionalSBL(PRMBase):
                                             Node(node1_uid, node1_tree, node1),
                                             Node(node2_uid, node2_tree, node2)))
             else:
-                raise ValueError(f"Unknown tree: {node1_tree}")
+                # Check if edge was already validated (same tree)
+                tree = tree_start if node1.tree == "start" else tree_goal
+
+                if not tree.graph.has_edge(node1.id, node2.id):
+                    raise Warning(f"Edge not found in {node1.tree} tree between nodes {node1.id} - {node2.id}")
+                    unchecked_nodes.append((node_idx, node1, node2))
+                else:
+                    edge_status = tree.graph[node1.id][node2.id]["status"]
+                    if edge_status == "valid":
+                        # Jump to next iteration (next edge)
+                        continue
+                    elif edge_status == "invalid":
+                        print(f"Invalid edge in {node1.tree} tree between {node1.id} - {node2.id}")
+                        return True, node_idx, tree_start, tree_goal
+                    else:
+                        unchecked_nodes.append((node_idx, node1, node2))
 
         # Check collisions of unknown edges lazily
         checks_performed = 0

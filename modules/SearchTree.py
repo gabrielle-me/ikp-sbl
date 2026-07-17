@@ -87,6 +87,15 @@ class SearchTree:
             current = self.parent[current]
         return list(reversed(path))
 
+    def path_to_root_uids(self, node_id: int) -> List[int]:
+        """Returns the path from node to root as a list of node UIDs."""
+        path: List[int] = []
+        current = node_id
+        while current is not None:
+            path.append(current)
+            current = self.parent[current]
+        return list(reversed(path))
+
     def to_checkpoint(self) -> Dict[str, Any]:
         return {
             "root": self.root,
