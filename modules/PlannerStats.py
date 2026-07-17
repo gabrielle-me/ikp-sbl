@@ -1,5 +1,7 @@
 from dataclasses import dataclass, asdict
 from typing import Optional
+import pandas as pd
+
 
 @dataclass
 class PlannerStats:
@@ -33,3 +35,8 @@ class PlannerStats:
     def to_dict(self) -> dict:
         """Exports stats to a dictionary for pandas/csv."""
         return asdict(self)
+    
+    def to_dataframe(self) -> pd.DataFrame:
+        """Helper to match IPPerfMonitor's expected output format for plotting."""
+        data = self.to_dict()
+        return pd.DataFrame([data])

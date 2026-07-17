@@ -158,6 +158,8 @@ class BidirectionalSBL(PRMBase):
 
         On collision, shrink eta and retry. On success, grow eta and return the new node.
         """
+        if not hasattr(self, 'stats'):
+            self.stats = PlannerStats()
 
         eta_standard = float(self.config.get("standard_eta", 2.0))
 
