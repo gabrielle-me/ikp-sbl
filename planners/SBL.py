@@ -1,25 +1,27 @@
 """Bidirectional search tree utilities for sampling-based motion planning."""
 
+# General imports
 import json
 import random
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from numbers import Number
-
 import networkx as nx
 import numpy as np
 from matplotlib.axes import Axes
 
-try:
-    from lecture_examples.IPPRMBase import PRMBase
-except ImportError:
-    from IPPRMBase import PRMBase
+# Lecture examples imports
+from lecture_examples.IPPRMBase import PRMBase
+from lecture_examples.IPPerfMonitor import IPPerfMonitor
+from lecture_examples import IPEnvironment
 
+# Module imports
 from modules.SearchTree import SearchTree
 from modules import draw
 from modules.node import Node
-from lecture_examples import IPEnvironment
 from modules.adaptiveLocalCollisionCheck import adaptive_local_collision_check
+from modules.PlannerStats import PlannerStats
 
 
 class BidirectionalSBL(PRMBase):
@@ -37,7 +39,8 @@ class BidirectionalSBL(PRMBase):
         "iterations": 10,
         "epsilon": 0.05,
         "kappa_max": 10,
-        "goal_bias": 0.5
+        "goal_bias": 0.5,
+        "repair_bias": 0.6    # Probability to sample near a broken path    
     }
 
     def __init__(self, coll_checker: IPEnvironment.CollisionChecker, config: Optional[Dict[str,Number]] = {}):
@@ -81,64 +84,74 @@ class BidirectionalSBL(PRMBase):
         path_b_rev = path_b[::-1]
         return path_a, path_b_rev
 
+    @IPPerfMonitor
     def _expand_tree(
             self,
             active_tree: SearchTree,
-            passive_tree: SearchTree
+            passive_tree: SearchTree,
+            repair_focus: Optional[List[float]] = None
         ) -> Optional[int]:
-            """SBL Tree expansion with adaptive step-size (eta).
+        """SBL Tree expansion with adaptive step-size (eta) and local repair sampling.
 
-            On collision, shrink eta and retry. On success, grow eta and return the new node.
-            """
+        On collision, shrink eta and retry. On success, grow eta and return the new node.
+        """
+        if not hasattr(self, 'stats'):
+            self.stats = PlannerStats()
 
-            eta_standard = float(self.config.get("standard_eta", 2.0))
+        eta_standard = float(self.config.get("standard_eta", 2.0))
 
-            # Start with whatever value eta currently is
-            eta = float(self.config["eta"])
+        # Start with whatever value eta currently is
+        eta = float(self.config["eta"])
 
-            eta_min = float(self.config.get("eta_min", 0.05))
-            eta_max = float(self.config.get("eta_max", 5.0))
-            eta_shrink = float(self.config.get("eta_shrink", 0.5))
-            eta_grow = float(self.config.get("eta_grow", 1.2))
-            attempts = int(self.config.get("expand_attempts", 5))
+        eta_min = float(self.config.get("eta_min", 0.05))
+        eta_max = float(self.config.get("eta_max", 5.0))
+        eta_shrink = float(self.config.get("eta_shrink", 0.5))
+        eta_grow = float(self.config.get("eta_grow", 1.2))
+        attempts = int(self.config.get("expand_attempts", 5))
 
-            for _ in range(attempts):
-                # Random sample within the environment limits with bias toward the passive tree root.
-                if random.random() < float(self.config["goal_bias"]):
+        for _ in range(attempts):
+            # Random sample within the environment limits with bias toward the passive tree root.
+            p = random.random()
+            repair_prob = float(self.config.get("repair_bias", 0.6)) if repair_focus is not None else 0.0
+
+            if p < repair_prob:
+                # 1. Local repair using the CURRENT adaptive step size (eta)
+                # If attempts fail and eta shrinks, the repair sampling tightly focuses near the valid node
+                q_rand = np.array(repair_focus) + np.random.uniform(-eta, eta, size=len(repair_focus))
+            else:
+                # 2. Standard exploration (Goal bias vs completely Random)
+                p_standard = random.random()
+                if p_standard < float(self.config["goal_bias"]):
                     q_rand = np.array(passive_tree.position(passive_tree.root), dtype=float)
                 else:
                     q_rand = np.array(self._getRandomFreePosition(), dtype=float)
+            
+            # Choose a near node v from the tree based on distance to q_rand
+            v_id, distance = active_tree.nearest(q_rand.tolist())
+            v_pos = np.array(active_tree.position(v_id), dtype=float)
 
-                # Choose a near node v from the tree based on distance to q_rand
-                v_id, distance = active_tree.nearest(q_rand.tolist())
-                v_pos = np.array(active_tree.position(v_id), dtype=float)
+            # Expand with step size eta
+            if distance <= eta:
+                q_new = q_rand
+            else:
+                direction = (q_rand - v_pos) / distance
+                q_new = v_pos + direction * eta
 
-                # Expand with step size eta
-                if distance <= eta:
-                    q_new = q_rand
-                else:
-                    direction = (q_rand - v_pos) / distance
-                    q_new = v_pos + direction * eta
+            q_new_list = q_new.tolist()
+            # Quantity of point collision tests
+            self.stats.point_collision_tests += 1
+            if not self._collisionChecker.pointInCollision(q_new_list):
+                eta_final = min(max(eta * eta_grow, eta_standard), eta_max)
+                self.config["eta"] = eta_final
+                return active_tree.add_node(q_new_list, parent=v_id)
 
-                q_new_list = q_new.tolist()
-                if not self._collisionChecker.pointInCollision(q_new_list):
-                    # Success: increase eta for future expansions and return the new node.
-                    # 1. Calculate the grown eta locally
-                    eta_increased = eta * eta_grow
-                    
-                    # 2. Ensure it is AT LEAST the standard value, but AT MOST the max value
-                    eta_final = min(max(eta_increased, eta_standard), eta_max)
+            # Collision: shrink eta locally for the next attempt in this loop
+            eta = max(eta * eta_shrink, eta_min)
 
-                    self.config["eta"] = eta_final
-                    return active_tree.add_node(q_new_list, parent=v_id)
-
-                # Collision: shrink eta locally for the next attempt in this loop
-                eta = max(eta * eta_shrink, eta_min)
-
-            # --- TOTAL FAILURE (All attempts collided) ---
-            # Reset back to the standard baseline so we don't start the next call at eta_min
-            self.config["eta"] = eta_standard
-            return None
+        # --- TOTAL FAILURE (All attempts collided) ---
+        # Reset back to the standard baseline so we don't start the next call at eta_min
+        self.config["eta"] = eta_standard
+        return None
 
 
 
@@ -194,30 +207,39 @@ class BidirectionalSBL(PRMBase):
         ax: Optional[Axes],
         checkpoint_path: Optional[str] = None,
         ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]]]:
-        """Grow two search trees using SBL and optionally visualize / record.
-
-        Returns
-        -------
-        T_start, T_goal:
-            The two search trees rooted at ``start`` and ``goal``.
-        path:
-            Unverified candidate path connecting the two trees, represented as
-            a ``List[Node]`` (or ``None`` if no connection was found).
-        """
-        tree_start, tree_goal = self.init_trees(start,goal)
+        """Grow two search trees using SBL and optionally visualize / record."""
+        # Initialize the clean stats object
+        self.stats = PlannerStats()
+        start_time = time.perf_counter()
+        
+        tree_start, tree_goal = self.init_trees(start, goal)
         checkpoint_frames: List[Dict] = []
+        
+        repair_focus = None
 
         for n_iter in range(self.config["iterations"]):
             print(f"Iteration {n_iter}")
-            start_tree, goal_tree, path_a, path_b = self.iterate_trees(tree_start, tree_goal)
+            
+            # Pass repair_focus to iteration
+            start_tree, goal_tree, path = self.iterate_trees(tree_start, tree_goal, repair_focus)
+            
             collision = False
             collision_index = None
-            if path_a and path_b:
-                collision, collision_index, start_tree, goal_tree = self.collision_check_solution(start_tree, goal_tree, path_a,path_b)
-                path = path_a+path_b
+            
+            if path:
+                self.stats.candidate_paths_checked += 1
+                if self.stats.time_to_first_candidate is None:
+                    self.stats.time_to_first_candidate = time.perf_counter() - start_time
+                    
+                # Unpack 5 values to support both the graph tools and the repair focus
+                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, path)
+                
+                # Update focus point for the next iteration if the path broke
+                repair_focus = new_focus if collision else None
             else:
                 path = None
                 print("no path found")
+                
             if ax:
                 # draw iteration
                 draw.plot_iteration(ax, start_tree, goal_tree, path, collision, collision_index)
@@ -245,9 +267,34 @@ class BidirectionalSBL(PRMBase):
                     },
                 )
                 
-            if not collision:
-                return start_tree, goal_tree, path
+            # CHANGED: Instead of returning, we log the success metrics and 'break' out of the loop
+            if path and not collision:
+                self.stats.time_to_first_valid_path = time.perf_counter() - start_time
+                self.stats.success = True
+                
+                # Calculate final path length
+                path_coords = [n.coordinates for n in path]
+                self.stats.path_length = sum(np.linalg.norm(path_coords[i+1] - path_coords[i]) for i in range(len(path_coords)-1))
+                break 
             
+        # --- FINAL STATS CALCULATION ---
+        # This runs after the loop finishes, regardless of whether it succeeded or failed.
+        
+        self.stats.planning_time = time.perf_counter() - start_time
+        self.stats.total_nodes_start_tree = len(start_tree.node_ids)
+        self.stats.total_nodes_goal_tree = len(goal_tree.node_ids)
+        
+        # Tally up all the edge statuses
+        for tree in [start_tree, goal_tree]:
+            for u, v, data in tree.graph.edges(data=True):
+                status = data.get("status", "unknown")
+                if status == "unknown": self.stats.edges_unchecked += 1
+                elif status == "valid": self.stats.edges_valid += 1
+                elif status == "invalid": self.stats.edges_invalid += 1
+                
+        # Finally return the result
+        if self.stats.success:
+            return start_tree, goal_tree, path
         return start_tree, goal_tree, None
 
     def init_trees(
@@ -262,7 +309,12 @@ class BidirectionalSBL(PRMBase):
         self._tree_goal = tree_goal
         return tree_start, tree_goal
 
-    def iterate_trees(self, tree_start: SearchTree, tree_goal: SearchTree) -> Tuple[SearchTree, SearchTree, Optional[List[Node]], Optional[List[Node]]]:
+
+    def iterate_trees(self,
+        tree_start: SearchTree, 
+        tree_goal: SearchTree, 
+        repair_focus: Optional[List[float]] = None
+        ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]], Optional[List[Node]]]:
         """
         Perform 1 iteration of expanding tree and checking connectivity
         """
@@ -274,7 +326,7 @@ class BidirectionalSBL(PRMBase):
                 active, passive = tree_goal, tree_start
 
             # 2. Expand the active tree by creating a single node
-            new_node = self._expand_tree(active, passive)
+            new_node = self._expand_tree(active, passive, repair_focus)
 
             # If no new node was added (e.g., sample in collision), skip this iteration
             if new_node is None:
@@ -293,25 +345,10 @@ class BidirectionalSBL(PRMBase):
             tree_start: SearchTree, tree_goal: SearchTree,
             connection_a: List[Node],
             connection_b: List[Node],
-        ) -> Tuple[bool, Optional[int], SearchTree, SearchTree]:
+        ) -> Tuple[bool, Optional[int], SearchTree, SearchTree, Optional[List[float]]]:
         """
         Adaptive collision check for a candidate path.
-
-        Parameters
-        ----------
-        tree_start, tree_goal:
-            The two search trees grown by the planner.
-        connection:
-            Candidate path represented as ``List[Node]`` objects.
-
-        Returns
-        -------
-        collision:
-            ``True`` if a collision was detected along the path.
-        collision_index:
-            Index of the colliding segment in the path (or ``None``).
-        tree_start, tree_goal:
-            Potentially updated trees with edge status / pruning applied.
+        Returns (collision_bool, collision_index, tree_start, tree_goal, repair_focus).
         """
         unchecked_nodes: List[Tuple[int, Node, Node]] = []
 
@@ -401,6 +438,83 @@ class BidirectionalSBL(PRMBase):
                 print(f"#Collision checks: {idx}")
                 return True, segment_index, tree_start, tree_goal
             
-        # no invalid edges and no collisions found
-        print(f"#Collision checks: {len(unchecked_nodes)}")
-        return False, None, tree_start, tree_goal
+            # 2. Check if edge was already validated/invalidated in start tree
+            elif node1.tree == "start":
+                # Failsafe: make sure the edge actually exists
+                if not tree_start.graph.has_edge(node1.id, node2.id):
+                    raise ValueError(f"Edge not found in start tree between {node1.id} - {node2.id}")
+                    
+                edge_status = tree_start.graph[node1.id][node2.id]["status"]
+                if edge_status == "valid":
+                    continue
+                elif edge_status == "invalid":
+                    print(f"Invalid edge in start tree between {node1.coordinates} - {node2.coordinates}")
+                    return True, segment_index, tree_start, tree_goal, node1.coordinates.tolist()
+                else:
+                    unchecked_nodes.append((segment_index, node1, node2))
+                
+            # 3. Check if edge was already validated/invalidated in goal tree
+            elif node1.tree == "goal":
+                # Failsafe: make sure the edge actually exists
+                if not tree_goal.graph.has_edge(node1.id, node2.id):
+                    raise ValueError(f"Edge not found in goal tree between {node1.id} - {node2.id}")
+                    
+                edge_status = tree_goal.graph[node1.id][node2.id]["status"]
+                if edge_status == "valid":
+                    continue
+                elif edge_status == "invalid":
+                    print(f"Invalid edge in goal tree between {node1.coordinates} - {node2.coordinates}")
+                    return True, segment_index, tree_start, tree_goal, node2.coordinates.tolist()
+                else:
+                    unchecked_nodes.append((segment_index, node1, node2))
+            else:
+                raise ValueError(f"Unknown tree: {node1.tree}")
+
+        # Check collisions of unknown edges lazily
+        checks_performed = 0
+        for idx, (segment_index, node1, node2) in enumerate(unchecked_nodes):
+            self.stats.line_tests += 1
+            checks_performed += 1
+            collision, checkedPoints = adaptive_local_collision_check(
+                node1.coordinates, node2.coordinates, 
+                self._collisionChecker, self.config["kappa_max"], self.config["epsilon"]
+            )
+            if collision:
+                # Update the stats for aborted adaptive tests
+                self.stats.aborted_adaptive_tests += 1
+
+            # TODO: add option to visualize checked points
+
+            repair_focus = None
+
+            # Mark edge as valid/invalid and prune active nodes
+            if node1.tree == node2.tree == "start":
+                if collision:
+                    tree_start.invalidate_edge(node1.id, node2.id)
+                    repair_focus = node1.coordinates.tolist() # Parent is node1
+                else:
+                    tree_start.graph[node1.id][node2.id]["status"] = "valid"
+                    
+            elif node1.tree == node2.tree == "goal":
+                if collision:
+                    tree_goal.invalidate_edge(node1.id, node2.id)
+                    repair_focus = node2.coordinates.tolist() # Parent is node2
+                else:
+                    tree_goal.graph[node1.id][node2.id]["status"] = "valid"
+                    
+            else:
+                # Collision on the bridge connecting the two trees
+                if collision:
+                    # The bridge isn't natively in either tree's edges, so no tree pruning.
+                    # We just focus repair on the start tree's side of the gap.
+                    repair_focus = node1.coordinates.tolist()
+
+            # Return immediately if collision found
+            if collision:
+                print(f"Collision found between {node1.coordinates} - {node2.coordinates}")
+                print(f"#Collision checks: {checks_performed}")
+                return True, segment_index, tree_start, tree_goal, repair_focus
+            
+        # No invalid edges and no collisions found
+        print(f"#Collision checks: {checks_performed}")
+        return False, None, tree_start, tree_goal, None
