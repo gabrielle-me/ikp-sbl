@@ -51,7 +51,7 @@ class BidirectionalSBL(PRMBase):
         if config:
             merged.update(config)
         return merged
-
+    
     def _connection_path(
         self,
         tree_a: SearchTree,
@@ -340,7 +340,7 @@ class BidirectionalSBL(PRMBase):
         tree_start: SearchTree, 
         tree_goal: SearchTree, 
         repair_focus: Optional[List[float]] = None
-    ) -> Tuple[SearchTree, SearchTree, Optional[List[List[float]]]]:
+    ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]]]:
         """
         Perform 1 iteration of expanding tree and checking connectivity
         """
@@ -354,14 +354,14 @@ class BidirectionalSBL(PRMBase):
                 active_name, passive_name = "goal", "start"
 
             # 2. Expand the active tree by creating a single node
-            new_node = self._expand_tree(active, passive, self.config, repair_focus)
+            new_node = self._expand_tree(active, passive, repair_focus)
 
             # If no new node was added (e.g., sample in collision), skip this iteration
             if new_node is None:
                 continue
 
             # 3. Attempt to connect the trees based on proximity
-            connection = self._try_connect(active, passive, new_node, self.config)
+            connection = self._try_connect(active, passive, new_node, active_name, passive_name)
             if connection is not None:
                 # Returns the candidate path as a list of Node objects
                 return tree_start, tree_goal, connection
@@ -371,7 +371,7 @@ class BidirectionalSBL(PRMBase):
     def collision_check_solution(
             self,
             tree_start: SearchTree, tree_goal: SearchTree,
-            connection: List[List[float]],
+            connection: List[Node],
         ) -> Tuple[bool, Optional[int], SearchTree, SearchTree, Optional[List[float]]]:
         """
         Adaptive collision check for a candidate path.
@@ -379,66 +379,45 @@ class BidirectionalSBL(PRMBase):
         """
         unchecked_nodes = []
         
-        # Determine the tree from which the candidate path originates (first node)
-        first_node = np.array(connection[0])
-        _, first_node_tree = self._get_node_uid(first_node)
-        
-        for node_id in range(0, len(connection) - 1):
-            node1 = np.array(connection[node_id])
-            node2 = np.array(connection[node_id + 1])
-            node1_uid, node1_tree = self._get_node_uid(node1)
-            node2_uid, node2_tree = self._get_node_uid(node2)
+        for segment_index in range(len(connection) - 1):
+            node1 = connection[segment_index]
+            node2 = connection[segment_index + 1]
 
             # 1. Connection between both trees (Bridge edge)
-            if node1_tree != node2_tree:
-                unchecked_nodes.append((node_id,
-                                        Node(node1_uid, node1_tree, node1),
-                                        Node(node2_uid, node2_tree, node2)))
+            if node1.tree != node2.tree:
+                unchecked_nodes.append((segment_index, node1, node2))
             
             # 2. Check if edge was already validated/invalidated in start tree
-            elif node1_tree == "start":
-                edge_status = tree_start.graph[node1_uid][node2_uid]["status"]
+            elif node1.tree == "start":
+                # Failsafe: make sure the edge actually exists
+                if not tree_start.graph.has_edge(node1.id, node2.id):
+                    raise ValueError(f"Edge not found in start tree between {node1.id} - {node2.id}")
+                    
+                edge_status = tree_start.graph[node1.id][node2.id]["status"]
                 if edge_status == "valid":
                     continue
                 elif edge_status == "invalid":
-                    print(f"Invalid edge in start tree between {node1} - {node2}")
-                    # node1 is the valid parent traversing away from start root
-                    return True, node_id, tree_start, tree_goal, node1.tolist()
+                    print(f"Invalid edge in start tree between {node1.coordinates} - {node2.coordinates}")
+                    return True, segment_index, tree_start, tree_goal, node1.coordinates.tolist()
                 else:
-                    unchecked_nodes.append((node_id,
-                                            Node(node1_uid, node1_tree, node1),
-                                            Node(node2_uid, node2_tree, node2)))
+                    unchecked_nodes.append((segment_index, node1, node2))
                 
             # 3. Check if edge was already validated/invalidated in goal tree
-            elif node1_tree == "goal":
-                edge_status = tree_goal.graph[node1_uid][node2_uid]["status"]
+            elif node1.tree == "goal":
+                # Failsafe: make sure the edge actually exists
+                if not tree_goal.graph.has_edge(node1.id, node2.id):
+                    raise ValueError(f"Edge not found in goal tree between {node1.id} - {node2.id}")
+                    
+                edge_status = tree_goal.graph[node1.id][node2.id]["status"]
                 if edge_status == "valid":
                     continue
                 elif edge_status == "invalid":
-                    print(f"Invalid edge in goal tree between {node1} - {node2}")
-                    # node2 is the valid parent traversing towards goal root
-                    return True, node_id, tree_start, tree_goal, node2.tolist()
+                    print(f"Invalid edge in goal tree between {node1.coordinates} - {node2.coordinates}")
+                    return True, segment_index, tree_start, tree_goal, node2.coordinates.tolist()
                 else:
-                    unchecked_nodes.append((node_id,
-                                            Node(node1_uid, node1_tree, node1),
-                                            Node(node2_uid, node2_tree, node2)))
+                    unchecked_nodes.append((segment_index, node1, node2))
             else:
-                # Check if edge was already validated (same tree)
-                tree = tree_start if node1.tree == "start" else tree_goal
-
-                if not tree.graph.has_edge(node1.id, node2.id):
-                    raise Warning(f"Edge not found in {node1.tree} tree between nodes {node1.id} - {node2.id}")
-                    unchecked_nodes.append((node_idx, node1, node2))
-                else:
-                    edge_status = tree.graph[node1.id][node2.id]["status"]
-                    if edge_status == "valid":
-                        # Jump to next iteration (next edge)
-                        continue
-                    elif edge_status == "invalid":
-                        print(f"Invalid edge in {node1.tree} tree between {node1.id} - {node2.id}")
-                        return True, node_idx, tree_start, tree_goal
-                    else:
-                        unchecked_nodes.append((node_idx, node1, node2))
+                raise ValueError(f"Unknown tree: {node1.tree}")
 
         # Check collisions of unknown edges lazily
         checks_performed = 0
