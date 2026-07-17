@@ -27,7 +27,7 @@ def adaptive_local_collision_check(node1: np.ndarray, node2: np.ndarray, coll_ch
         # termination condition: small distance between segments -> no collision
         distance_per_segment = distance / n_segments
         if distance_per_segment < epsilon:
-            print(f"fell below minimum distance {epsilon}: {distance_per_segment}")
+            #print(f"fell below minimum distance {epsilon}: {distance_per_segment}")
             return False, checked_points[:checked_points_ind]
         
         for n_segment in range(1, n_segments, 2):
