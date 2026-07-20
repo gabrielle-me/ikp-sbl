@@ -46,7 +46,11 @@ class BidirectionalSBL(PRMBase):
     def __init__(self, coll_checker: IPEnvironment.CollisionChecker, config: Optional[Dict[str,Number]] = {}):
         self.config =  self._merge_config(config)
         super(BidirectionalSBL, self).__init__(coll_checker)
-
+        
+        # Initialize attributes so they always exist for the visualizer
+        self.startTree = None
+        self.goalTree = None
+    
     @staticmethod
     def _merge_config(config: Optional[Dict[str, Number]]) -> Dict[str, Number]:
         merged = BidirectionalSBL.DEFAULT_CONFIG.copy()
@@ -153,8 +157,6 @@ class BidirectionalSBL(PRMBase):
         self.config["eta"] = eta_standard
         return None
 
-
-
     def grow_trees(
         self,
         start: List[float],
@@ -207,14 +209,13 @@ class BidirectionalSBL(PRMBase):
         config: Optional[Dict] = None) -> List:
         """Wrapper to make this planner compatible with lecture planners"""
         if config:
-            self._merge_config(config)
-
+            self.config = self._merge_config(config)
+            
         self.startTree, self.goalTree, path = self.plan_path(start,goal)
         if path:
             return path
         else:
             return []
-
     
     def plan_path(
         self,
@@ -318,10 +319,14 @@ class BidirectionalSBL(PRMBase):
         checked_start, checked_goal = self._checkStartGoal([start], [goal])
         tree_start = SearchTree(checked_start[0], "start")
         tree_goal = SearchTree(checked_goal[0], "goal")
+        
+        # Assign directly to the attributes the visualizer expects
+        self.startTree = tree_start
+        self.goalTree = tree_goal
+        
         self._tree_start = tree_start
         self._tree_goal = tree_goal
         return tree_start, tree_goal
-
 
     def iterate_trees(self,
         tree_start: SearchTree, 
@@ -354,11 +359,11 @@ class BidirectionalSBL(PRMBase):
         return tree_start, tree_goal, None, None
 
     def collision_check_solution(
-            self,
-            tree_start: SearchTree, tree_goal: SearchTree,
-            connection_a: List[Node],
-            connection_b: List[Node],
-        ) -> Tuple[bool, Optional[int], SearchTree, SearchTree, Optional[List[float]]]:
+        self,
+        tree_start: SearchTree, tree_goal: SearchTree,
+        connection_a: List[Node],
+        connection_b: List[Node],
+    ) -> Tuple[bool, Optional[int], SearchTree, SearchTree, Optional[List[float]]]:
         """
         Adaptive collision check for a candidate path.
         Returns (collision_bool, collision_index, tree_start, tree_goal, repair_focus).
@@ -371,6 +376,8 @@ class BidirectionalSBL(PRMBase):
         a_done = len(connection_a) < 2
         b_done = len(connection_b) < 2
         i = 0
+        
+        # Alternating edge selection logic
         while (not a_done) or (not b_done):
             if (not a_done) and (not b_done):
                 # alternating
@@ -388,46 +395,47 @@ class BidirectionalSBL(PRMBase):
 
             if take_path_b:
                 # only sample from B
-                node1= connection_b_rev[counter_b]
-                node_idx = len(connection_a)+len(connection_b)-1-counter_b
+                node1 = connection_b_rev[counter_b]
+                node_idx = len(connection_a) + len(connection_b) - 1 - counter_b
                 counter_b += 1
-                #print(f"B: {counter_b} / {len(connection_b)}")
                 node2 = connection_b_rev[counter_b]
-                if counter_b+1 == len(connection_b):
+                if counter_b + 1 == len(connection_b):
                     b_done = True
-                    #print("B done")
             else:
                 # only sample from A
-                node1= connection_a[counter_a]
-                node_idx=counter_a
+                node1 = connection_a[counter_a]
+                node_idx = counter_a
                 counter_a += 1
-                #print(f"A: {counter_a} / {len(connection_a)}")
                 node2 = connection_a[counter_a]
-                if counter_a+1 == len(connection_a):
+                if counter_a + 1 == len(connection_a):
                     a_done = True
-                    #print("A done")
 
             # Check if edge was already validated (same tree)
             tree = tree_start if node1.tree == "start" else tree_goal
-
             edge_status = tree.graph[node1.id][node2.id]["status"]
+            
             if edge_status == "valid":
                 # Jump to next iteration (next edge)
                 continue
             elif edge_status == "invalid":
-                #print(f"Invalid edge: {node1} - {node2}")
-                return True, node_idx, tree_start, tree_goal, node1
+                # Tree-specific repair focus for known invalid edges
+                if node1.tree == "start":
+                    repair_focus = node1.coordinates.tolist()
+                else:
+                    repair_focus = node2.coordinates.tolist()
+                return True, node_idx, tree_start, tree_goal, repair_focus
             else:
                 unchecked_nodes.append((node_idx, node1, node2))
         
         # Check connection between trees for collision
-        unchecked_nodes.append((len(connection_a),connection_a[-1],connection_b[0]))
+        unchecked_nodes.append((len(connection_a), connection_a[-1], connection_b[0]))
 
         # Check collisions of unknown edges lazily
         checks_performed = 0
         for idx, (segment_index, node1, node2) in enumerate(unchecked_nodes):
             self.stats.line_tests += 1
             checks_performed += 1
+            
             # Check collisions of unknown edges
             collision, checkedPoints = adaptive_local_collision_check(
                 node1.coordinates,
@@ -437,24 +445,36 @@ class BidirectionalSBL(PRMBase):
                 self.config["epsilon"],
             )
 
-            #TODO: add option to visualize checked points
+            # TODO: add option to visualize checked points
 
-            if node1.tree == node2.tree:
-                target_tree = tree_start if node1.tree == "start" else tree_goal
-                target_tree.graph[node1.id][node2.id]["status"] = ["valid", "invalid"][collision]
+            repair_focus = None
+
+            # Edge invalidation and repair focus logic
+            if node1.tree == node2.tree == "start":
                 if collision:
-                    target_tree.invalidate_edge(node1.id, node2.id)
-                    #target_tree.mark_unreachable_subtree(node2.id)
-                
+                    tree_start.invalidate_edge(node1.id, node2.id)
+                    repair_focus = node1.coordinates.tolist()  # Parent is node1
+                else:
+                    tree_start.graph[node1.id][node2.id]["status"] = "valid"
+                    
+            elif node1.tree == node2.tree == "goal":
+                if collision:
+                    tree_goal.invalidate_edge(node1.id, node2.id)
+                    repair_focus = node2.coordinates.tolist()  # Parent is node2
+                else:
+                    tree_goal.graph[node1.id][node2.id]["status"] = "valid"
+                    
+            else:
+                # Collision on the bridge connecting the two trees
+                if collision:
+                    # The bridge isn't natively in either tree's edges, so no tree pruning.
+                    # We just focus repair on the start tree's side of the gap.
+                    repair_focus = node1.coordinates.tolist()
+
             # return if collision found
             if collision:
                 self.stats.aborted_adaptive_tests += 1
-                #print(f"Colliding edge: {node1} - {node2}")
-                repair_focus = node1.coordinates.tolist()
-                #print(f"#Collision checks: {idx}")
                 return True, segment_index, tree_start, tree_goal, repair_focus
             
-            
         # No invalid edges and no collisions found
-        #print(f"#Collision checks: {checks_performed}")
         return False, None, tree_start, tree_goal, None
