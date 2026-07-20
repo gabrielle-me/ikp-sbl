@@ -13,7 +13,7 @@ import ipywidgets as widgets
 from IPython.display import display
 
 from modules.SearchTree import SearchTree
-from modules import draw
+from modules import IPVISsbl
 
 
 def load_sbl_checkpoints(checkpoint_path: str) -> Dict[str, Any]:
@@ -74,8 +74,8 @@ def _draw_checkpoint_frame(
 ):
     ax.cla()
     if scene is not None:
-        draw.draw_obstacles(ax, scene)
-    draw.plot_iteration(
+        IPVISsbl.draw_obstacles(ax, scene)
+    IPVISsbl.plot_iteration(
         ax,
         frame["start_tree"],
         frame["goal_tree"],

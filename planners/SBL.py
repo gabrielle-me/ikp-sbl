@@ -10,6 +10,7 @@ from numbers import Number
 import networkx as nx
 import numpy as np
 from matplotlib.axes import Axes
+from tqdm import tqdm
 
 # Lecture examples imports
 from lecture_examples.IPPRMBase import PRMBase
@@ -18,7 +19,6 @@ from lecture_examples import IPEnvironment
 
 # Module imports
 from modules.SearchTree import SearchTree
-from modules import draw
 from modules.node import Node
 from modules.adaptiveLocalCollisionCheck import adaptive_local_collision_check
 from modules.PlannerStats import PlannerStats
@@ -199,12 +199,27 @@ class BidirectionalSBL(PRMBase):
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as file_handle:
             json.dump(payload, file_handle, indent=2)
+
+    @IPPerfMonitor
+    def planPath(self,
+        start: List[float],
+        goal: List[float],
+        config: Optional[Dict] = None) -> List:
+        """Wrapper to make this planner compatible with lecture planners"""
+        if config:
+            self._merge_config(config)
+
+        self.startTree, self.goalTree, path = self.plan_path(start,goal)
+        if path:
+            return path
+        else:
+            return []
+
     
     def plan_path(
         self,
         start: List[float],
         goal: List[float],
-        ax: Optional[Axes],
         checkpoint_path: Optional[str] = None,
         ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]]]:
         """Grow two search trees using SBL and optionally visualize / record."""
@@ -217,22 +232,23 @@ class BidirectionalSBL(PRMBase):
         
         repair_focus = None
 
-        for n_iter in range(self.config["iterations"]):
-            print(f"Iteration {n_iter}")
+        for n_iter in tqdm(range(self.config["iterations"])):
+            #print(f"Iteration {n_iter}")
             
             # Pass repair_focus to iteration
-            start_tree, goal_tree, path = self.iterate_trees(tree_start, tree_goal, repair_focus)
+            start_tree, goal_tree, path_a, path_b = self.iterate_trees(tree_start, tree_goal, repair_focus)
             
             collision = False
             collision_index = None
             
-            if path:
+            if path_a and path_b:
                 self.stats.candidate_paths_checked += 1
                 if self.stats.time_to_first_candidate is None:
                     self.stats.time_to_first_candidate = time.perf_counter() - start_time
                     
                 # Unpack 5 values to support both the graph tools and the repair focus
-                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, path)
+                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, path_a,path_b)
+                path = path_a+path_b
                 
                 # Update focus point for the next iteration if the path broke
                 repair_focus = new_focus if collision else None
@@ -240,9 +256,6 @@ class BidirectionalSBL(PRMBase):
                 path = None
                 print("no path found")
                 
-            if ax:
-                # draw iteration
-                draw.plot_iteration(ax, start_tree, goal_tree, path, collision, collision_index)
 
             if checkpoint_path:
                 checkpoint_frames.append(
@@ -402,15 +415,19 @@ class BidirectionalSBL(PRMBase):
                 # Jump to next iteration (next edge)
                 continue
             elif edge_status == "invalid":
-                print(f"Invalid edge: {node1} - {node2}")
-                return True, node_idx, tree_start, tree_goal
+                #print(f"Invalid edge: {node1} - {node2}")
+                return True, node_idx, tree_start, tree_goal, node1
             else:
                 unchecked_nodes.append((node_idx, node1, node2))
         
         # Check connection between trees for collision
         unchecked_nodes.append((len(connection_a),connection_a[-1],connection_b[0]))
 
+        # Check collisions of unknown edges lazily
+        checks_performed = 0
         for idx, (segment_index, node1, node2) in enumerate(unchecked_nodes):
+            self.stats.line_tests += 1
+            checks_performed += 1
             # Check collisions of unknown edges
             collision, checkedPoints = adaptive_local_collision_check(
                 node1.coordinates,
@@ -422,99 +439,22 @@ class BidirectionalSBL(PRMBase):
 
             #TODO: add option to visualize checked points
 
-            # mark edge as invalid
-            if node1.tree == node2.tree == "start":
-                # start tree
-                tree_start.graph[node1.id][node2.id]["status"] = ["valid", "invalid"][collision]
-            elif node1.tree == node2.tree == "goal":
-                # goal tree
-                tree_goal.graph[node1.id][node2.id]["status"] = ["valid", "invalid"][collision]
+            if node1.tree == node2.tree:
+                target_tree = tree_start if node1.tree == "start" else tree_goal
+                target_tree.graph[node1.id][node2.id]["status"] = ["valid", "invalid"][collision]
+                if collision:
+                    target_tree.invalidate_edge(node1.id, node2.id)
+                    #target_tree.mark_unreachable_subtree(node2.id)
                 
             # return if collision found
             if collision:
-                print(f"Colliding edge: {node1} - {node2}")
-                target_tree = tree_start if node2.tree == "start" else tree_goal
-                target_tree.mark_unreachable_subtree(node2.id)
-                print(f"#Collision checks: {idx}")
-                return True, segment_index, tree_start, tree_goal
-            
-            # 2. Check if edge was already validated/invalidated in start tree
-            elif node1.tree == "start":
-                # Failsafe: make sure the edge actually exists
-                if not tree_start.graph.has_edge(node1.id, node2.id):
-                    raise ValueError(f"Edge not found in start tree between {node1.id} - {node2.id}")
-                    
-                edge_status = tree_start.graph[node1.id][node2.id]["status"]
-                if edge_status == "valid":
-                    continue
-                elif edge_status == "invalid":
-                    print(f"Invalid edge in start tree between {node1.coordinates} - {node2.coordinates}")
-                    return True, segment_index, tree_start, tree_goal, node1.coordinates.tolist()
-                else:
-                    unchecked_nodes.append((segment_index, node1, node2))
-                
-            # 3. Check if edge was already validated/invalidated in goal tree
-            elif node1.tree == "goal":
-                # Failsafe: make sure the edge actually exists
-                if not tree_goal.graph.has_edge(node1.id, node2.id):
-                    raise ValueError(f"Edge not found in goal tree between {node1.id} - {node2.id}")
-                    
-                edge_status = tree_goal.graph[node1.id][node2.id]["status"]
-                if edge_status == "valid":
-                    continue
-                elif edge_status == "invalid":
-                    print(f"Invalid edge in goal tree between {node1.coordinates} - {node2.coordinates}")
-                    return True, segment_index, tree_start, tree_goal, node2.coordinates.tolist()
-                else:
-                    unchecked_nodes.append((segment_index, node1, node2))
-            else:
-                raise ValueError(f"Unknown tree: {node1.tree}")
-
-        # Check collisions of unknown edges lazily
-        checks_performed = 0
-        for idx, (segment_index, node1, node2) in enumerate(unchecked_nodes):
-            self.stats.line_tests += 1
-            checks_performed += 1
-            collision, checkedPoints = adaptive_local_collision_check(
-                node1.coordinates, node2.coordinates, 
-                self._collisionChecker, self.config["kappa_max"], self.config["epsilon"]
-            )
-            if collision:
-                # Update the stats for aborted adaptive tests
                 self.stats.aborted_adaptive_tests += 1
-
-            # TODO: add option to visualize checked points
-
-            repair_focus = None
-
-            # Mark edge as valid/invalid and prune active nodes
-            if node1.tree == node2.tree == "start":
-                if collision:
-                    tree_start.invalidate_edge(node1.id, node2.id)
-                    repair_focus = node1.coordinates.tolist() # Parent is node1
-                else:
-                    tree_start.graph[node1.id][node2.id]["status"] = "valid"
-                    
-            elif node1.tree == node2.tree == "goal":
-                if collision:
-                    tree_goal.invalidate_edge(node1.id, node2.id)
-                    repair_focus = node2.coordinates.tolist() # Parent is node2
-                else:
-                    tree_goal.graph[node1.id][node2.id]["status"] = "valid"
-                    
-            else:
-                # Collision on the bridge connecting the two trees
-                if collision:
-                    # The bridge isn't natively in either tree's edges, so no tree pruning.
-                    # We just focus repair on the start tree's side of the gap.
-                    repair_focus = node1.coordinates.tolist()
-
-            # Return immediately if collision found
-            if collision:
-                print(f"Collision found between {node1.coordinates} - {node2.coordinates}")
-                print(f"#Collision checks: {checks_performed}")
+                #print(f"Colliding edge: {node1} - {node2}")
+                repair_focus = node1.coordinates.tolist()
+                #print(f"#Collision checks: {idx}")
                 return True, segment_index, tree_start, tree_goal, repair_focus
             
+            
         # No invalid edges and no collisions found
-        print(f"#Collision checks: {checks_performed}")
+        #print(f"#Collision checks: {checks_performed}")
         return False, None, tree_start, tree_goal, None
