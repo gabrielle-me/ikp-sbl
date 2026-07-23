@@ -40,7 +40,8 @@ class BidirectionalSBL(PRMBase):
         "epsilon": 0.05,
         "kappa_max": 10,
         "goal_bias": 0.5,
-        "repair_bias": 0.6    # Probability to sample near a broken path    
+        "repair_bias": 0.6,    # Probability to sample near a broken path
+        "count_edge_checks": False  
     }
 
     def __init__(self, coll_checker: IPEnvironment.CollisionChecker, config: Optional[Dict[str,Number]] = {}):
@@ -50,6 +51,7 @@ class BidirectionalSBL(PRMBase):
         # Initialize attributes so they always exist for the visualizer
         self.startTree = None
         self.goalTree = None
+        self.collision_check_counter = {}
     
     @staticmethod
     def _merge_config(config: Optional[Dict[str, Number]]) -> Dict[str, Number]:
@@ -445,12 +447,23 @@ class BidirectionalSBL(PRMBase):
                 self.config["epsilon"],
             )
 
+
+            # count how often edge was checked:
+            if self.config["count_edge_checks"]:
+                edge_points = sorted([node1.id, node2.id])
+                edge_id = str(edge_points[0])+str(edge_points[1])
+                if edge_id in self.collision_check_counter:
+                    current_count=self.collision_check_counter[edge_id]
+                    self.collision_check_counter[edge_id] = current_count+1
+                else:
+                    self.collision_check_counter[edge_id] = 1
+
             # TODO: add option to visualize checked points
 
             repair_focus = None
 
             # Edge invalidation and repair focus logic
-            if node1.tree == node2.tree == "start":
+            if node1.tree == node2.tree == "start":                
                 if collision:
                     tree_start.invalidate_edge(node1.id, node2.id)
                     repair_focus = node1.coordinates.tolist()  # Parent is node1
