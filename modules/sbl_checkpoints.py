@@ -28,6 +28,8 @@ def load_sbl_checkpoints(checkpoint_path: str) -> Dict[str, Any]:
                 "iteration": frame["iteration"],
                 "collision": frame["collision"],
                 "collision_index": frame.get("collision_index"),
+                "bridge_index": frame.get("bridge_index"),
+                "bridge_status": frame.get("bridge_status"),
                 "path": frame.get("path"),
                 "start_tree": SearchTree.from_checkpoint(frame["trees"]["start"]),
                 "goal_tree": SearchTree.from_checkpoint(frame["trees"]["goal"]),
@@ -82,6 +84,8 @@ def _draw_checkpoint_frame(
         frame["path"],
         frame["collision"],
         frame["collision_index"],
+        frame.get("bridge_index"),
+        frame.get("bridge_status"),
     )
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)

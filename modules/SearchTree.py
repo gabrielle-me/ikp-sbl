@@ -117,28 +117,36 @@ class SearchTree:
     def from_checkpoint(cls, checkpoint: Dict[str, Any]) -> "SearchTree":
         tree = cls.__new__(cls)
         tree.graph = nx.node_link_graph(checkpoint["graph"])
-        
-        # 1. Restore standard variables
-        tree.parent = {
-            int(node_id): parent_id if parent_id is None else int(parent_id)
-            for node_id, parent_id in checkpoint["parent"].items()
-        }
-        tree.node_ids = [int(node_id) for node_id in checkpoint["node_ids"]]
+
+        # Helper: resolve a raw ID (often stored as a string in JSON) to the
+        # actual node identifier used inside the NetworkX graph. This keeps
+        # backward compatibility with older checkpoints that stored integer
+        # IDs as strings (e.g. "0", "1") as well as newer ones that use
+        # string UIDs.
+
+        # 1. Restore standard variables using resolved node IDs so that
+        #    parent / node_ids / root are consistent with the graph.
+        tree.parent = {}
+        for node_id, parent_id in checkpoint["parent"].items():
+            resolved_parent = None if parent_id is None else parent_id
+            tree.parent[node_id] = resolved_parent
+
+        tree.node_ids = [node_id for node_id in checkpoint["node_ids"]]
         tree._next_node_id = int(checkpoint["next_node_id"])
-        tree.root = int(checkpoint["root"])
-        
+        tree.root = checkpoint["root"]
+
         # 2. Reconstruct `children` and `active_nodes`
         tree.children = defaultdict(list)
         for child_id, parent_id in tree.parent.items():
             if parent_id is not None:
                 tree.children[parent_id].append(child_id)
-                
-        # To determine active nodes, we look at the edges. 
+
+        # To determine active nodes, we look at the edges.
         # Any node belonging to an 'invalid' edge (and its descendants) is inactive.
         tree.active_nodes = set(tree.node_ids)
         for u, v, data in tree.graph.edges(data=True):
             if data.get("status") == "invalid":
                 child = v if tree.parent.get(v) == u else u
                 tree._deactivate_subtree(child)
-                
+
         return tree

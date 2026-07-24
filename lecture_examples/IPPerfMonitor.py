@@ -7,6 +7,8 @@ License is based on Creative Commons: Attribution-NonCommercial 4.0 Internationa
 """
 
 
+from typing import Tuple
+
 import pandas
 import time
 import numpy as np
@@ -61,8 +63,9 @@ class IPPerfMonitor(object):
             del IPPerfMonitor.__instances[f].data[:]
             
     @staticmethod
-    def get_time(func_name: str) -> np.float64:
+    def get_time(func_name: str) -> Tuple[np.float64, int]:
         df = IPPerfMonitor.dataFrame()
-        return  df[df["name"]==func_name]["time"].mean()
+        times = df[df["name"]==func_name]["time"]
+        return  times.sum(), len(times)
     
 

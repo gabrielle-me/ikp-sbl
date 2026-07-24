@@ -188,10 +188,40 @@ class BidirectionalSBL(PRMBase):
         start_tree: SearchTree,
         goal_tree: SearchTree,
     ) -> Dict:
+        # Determine the bridge segment index within ``path`` (if any). The
+        # bridge connects a node from the start tree to a node from the goal
+        # tree, so it is the first segment where the node's ``tree`` attribute
+        # changes.
+        bridge_index: Optional[int] = None
+        if path:
+            for i in range(len(path) - 1):
+                if path[i].tree != path[i + 1].tree:
+                    bridge_index = i
+                    break
+
+        # Derive a coarse status for the bridge segment based on the global
+        # collision outcome and which segment index collided first:
+        #
+        #   - If no collision at all, the bridge was checked and is valid.
+        #   - If the collision happened exactly on the bridge, mark it as
+        #     a colliding segment.
+        #   - If the collision happened on some other segment first, the
+        #     bridge might not have been checked yet and remains unknown.
+        bridge_status: Optional[str] = None
+        if bridge_index is not None:
+            if not collision:
+                bridge_status = "valid"
+            elif collision_index == bridge_index:
+                bridge_status = "collision"
+            else:
+                bridge_status = "unknown"
+
         return {
             "iteration": iteration,
             "collision": collision,
             "collision_index": collision_index,
+            "bridge_index": bridge_index,
+            "bridge_status": bridge_status,
             # Store path as plain coordinates for checkpoint visualization.
             # The planner internally works with ``List[Node]`` objects, but
             # checkpoints only need the geometric layout, so we serialize each
