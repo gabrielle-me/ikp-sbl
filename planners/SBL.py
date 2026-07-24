@@ -20,7 +20,7 @@ from lecture_examples import IPEnvironment
 # Module imports
 from modules.SearchTree import SearchTree
 from modules.node import Node
-from modules.adaptiveLocalCollisionCheck import adaptive_local_collision_check
+from modules.adaptiveLocalCollisionCheck import LineChecker, AdaptiveLineChecker
 from modules.PlannerStats import PlannerStats
 
 
@@ -37,11 +37,14 @@ class BidirectionalSBL(PRMBase):
         "eta_grow": 1.2,
         "expand_attempts": 5,
         "iterations": 10,
-        "epsilon": 0.05,
-        "kappa_max": 10,
+        "collision_check": {
+            "adaptive": True,
+            "epsilon": 0.05,
+            "steps": 50},
         "goal_bias": 0.5,
         "repair_bias": 0.6,    # Probability to sample near a broken path
-        "count_edge_checks": False  
+        "count_edge_checks": False,
+        "checkpoint_path": None,
     }
 
     def __init__(self, coll_checker: IPEnvironment.CollisionChecker, config: Optional[Dict[str,Number]] = {}):
@@ -52,6 +55,8 @@ class BidirectionalSBL(PRMBase):
         self.startTree = None
         self.goalTree = None
         self.collision_check_counter = {}
+        self._collisionCheckFun = [LineChecker(coll_checker, self.config["collision_check"]), AdaptiveLineChecker(coll_checker, self.config["collision_check"])][self.config["collision_check"]["adaptive"]]
+                                       
     
     @staticmethod
     def _merge_config(config: Optional[Dict[str, Number]]) -> Dict[str, Number]:
@@ -204,33 +209,25 @@ class BidirectionalSBL(PRMBase):
         with path.open("w", encoding="utf-8") as file_handle:
             json.dump(payload, file_handle, indent=2)
 
+
+    def order_path(self,path):
+        if path:
+            if self._active.name == "start":
+                return path
+            else:
+                # reverse path node order
+                return path[::-1]
+        else:
+            return []
+    
     @IPPerfMonitor
     def planPath(self,
         start: List[float],
         goal: List[float],
         config: Optional[Dict] = None) -> List[Optional[Node]]:
-        """Wrapper to make this planner compatible with lecture planners.
-        Returns nodes in start to goal order"""
+        """Grow two search trees using SBL and optionally visualize / record."""
         if config:
             self.config = self._merge_config(config)
-            
-        self.startTree, self.goalTree, self.path = self.plan_path(start,goal)
-        if self.path:
-            if self._active.name == "start":
-                return self.path
-            else:
-                # reverse path node order
-                return self.path[::-1]
-        else:
-            return []
-    
-    def plan_path(
-        self,
-        start: List[float],
-        goal: List[float],
-        checkpoint_path: Optional[str] = None,
-        ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]]]:
-        """Grow two search trees using SBL and optionally visualize / record."""
         # Initialize the clean stats object
         self.stats = PlannerStats()
         start_time = time.perf_counter()
@@ -265,7 +262,7 @@ class BidirectionalSBL(PRMBase):
                 print("no path found")
                 
 
-            if checkpoint_path:
+            if self.config["checkpoint_path"]:
                 checkpoint_frames.append(
                     self._build_checkpoint_frame(
                         n_iter,
@@ -277,7 +274,7 @@ class BidirectionalSBL(PRMBase):
                     )
                 )
                 self._write_checkpoint_file(
-                    checkpoint_path,
+                    self.config["checkpoint_path"],
                     {
                         "metadata": {
                             "start": start,
@@ -297,6 +294,9 @@ class BidirectionalSBL(PRMBase):
                 path_coords = [n.coordinates for n in path]
                 self.stats.path_length = sum(np.linalg.norm(path_coords[i+1] - path_coords[i]) for i in range(len(path_coords)-1))
                 break 
+            if not path:
+                # do not do another iteration if current iteration did not find a path
+                break
             
         # --- FINAL STATS CALCULATION ---
         # This runs after the loop finishes, regardless of whether it succeeded or failed.
@@ -314,9 +314,11 @@ class BidirectionalSBL(PRMBase):
                 elif status == "invalid": self.stats.edges_invalid += 1
                 
         # Finally return the result
+        self.startTree = start_tree
+        self.goalTree = goal_tree
         if self.stats.success:
-            return start_tree, goal_tree, path
-        return start_tree, goal_tree, None
+            return self.order_path(path)
+        return None
 
     def init_trees(
         self,
@@ -403,7 +405,17 @@ class BidirectionalSBL(PRMBase):
             if take_path_b:
                 # only sample from B
                 node1 = connection_b_rev[counter_b]
-                node_idx = len(connection_a) + len(connection_b) - 1 - counter_b
+                # Segment index within the full path ``connection_a + connection_b``.
+                #
+                # Path segments are indexed as follows:
+                #   - edges inside ``connection_a``: 0 .. len(connection_a) - 2
+                #   - bridge between trees:        len(connection_a) - 1
+                #   - edges inside ``connection_b``: len(connection_a) .. len(path) - 2
+                #
+                # We iterate edges of ``connection_b`` using ``connection_b_rev`` from
+                # the end of the path back towards the bridge, so the first B edge
+                # we check corresponds to the last segment index in the path.
+                node_idx = len(connection_a) + len(connection_b) - 2 - counter_b
                 counter_b += 1
                 node2 = connection_b_rev[counter_b]
                 if counter_b + 1 == len(connection_b):
@@ -411,6 +423,9 @@ class BidirectionalSBL(PRMBase):
             else:
                 # only sample from A
                 node1 = connection_a[counter_a]
+                # Edges inside ``connection_a`` are between consecutive nodes
+                # ``connection_a[k]`` and ``connection_a[k+1]`` and correspond
+                # to path segment index ``k`` in ``connection_a + connection_b``.
                 node_idx = counter_a
                 counter_a += 1
                 node2 = connection_a[counter_a]
@@ -435,7 +450,10 @@ class BidirectionalSBL(PRMBase):
                 unchecked_nodes.append((node_idx, node1, node2))
         
         # Check connection between trees for collision
-        unchecked_nodes.append((len(connection_a), connection_a[-1], connection_b[0]))
+        # Bridge segment between the two trees connects the last node of A to
+        # the first node of B. Its segment index in ``connection_a + connection_b``
+        # is ``len(connection_a) - 1``.
+        unchecked_nodes.append((len(connection_a) - 1, connection_a[-1], connection_b[0]))
 
         # Check collisions of unknown edges lazily
         checks_performed = 0
@@ -444,12 +462,9 @@ class BidirectionalSBL(PRMBase):
             checks_performed += 1
             
             # Check collisions of unknown edges
-            collision, checkedPoints = adaptive_local_collision_check(
+            collision = self._collisionCheckFun(
                 node1.coordinates,
                 node2.coordinates,
-                self._collisionChecker,
-                self.config["kappa_max"],
-                self.config["epsilon"],
             )
 
 

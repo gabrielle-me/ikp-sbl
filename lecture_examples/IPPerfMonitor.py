@@ -9,6 +9,7 @@ License is based on Creative Commons: Attribution-NonCommercial 4.0 Internationa
 
 import pandas
 import time
+import numpy as np
 
 class IPPerfMonitor(object):
     """
@@ -58,6 +59,10 @@ class IPPerfMonitor(object):
        "Clear data"
        for f in IPPerfMonitor.__instances:
             del IPPerfMonitor.__instances[f].data[:]
-
+            
+    @staticmethod
+    def get_time(func_name: str) -> np.float64:
+        df = IPPerfMonitor.dataFrame()
+        return  df[df["name"]==func_name]["time"].mean()
     
 

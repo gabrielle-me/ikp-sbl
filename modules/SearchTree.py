@@ -26,9 +26,9 @@ class SearchTree:
         self.root: int = self.add_node(root_position, parent=None)
         self.name = name
 
-    def _make_node_uid(self, node_id: int, position: List[float]) -> int:
+    def _make_node_uid(self, node_id: int, position: List[float]) -> str:
         coord_parts = [str(coord).replace('.', '') for coord in position]
-        return int(f"{node_id}{''.join(coord_parts)}")
+        return f"{node_id}{''.join(coord_parts)}"
 
     def add_node(self, position: List[float], parent: Optional[int]) -> int:
         node_id = self._next_node_id

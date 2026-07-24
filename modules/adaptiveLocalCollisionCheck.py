@@ -1,45 +1,71 @@
 import numpy as np
 from typing import Optional, Tuple
 from lecture_examples.IPEnvironment import CollisionChecker
+from lecture_examples.IPPerfMonitor import IPPerfMonitor
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+from typing import Dict
 
 MAX_KAPPA = 25
 
-def adaptive_local_collision_check(node1: np.ndarray, node2: np.ndarray, coll_checker: CollisionChecker, kappa_max: int, epsilon: float) -> Tuple[bool, np.ndarray]:
-    """
-    Iterative collision check for each segment with increasing kappa until kappa_max
-    """
-    if kappa_max > MAX_KAPPA:
-        raise MemoryError(f"do not increase kappa to more than {MAX_KAPPA} to guarantee reasonable memory usage")
-    
-    relative_vector = node2 - node1
-    distance = np.linalg.norm(relative_vector)
+class LineChecker():
+    def __init__(self, coll_checker: CollisionChecker, config:Dict):
+        self.config = config
+        self.checker = coll_checker
 
-    #Init vector for checked points
-    max_checked_points = 2**kappa_max - 1
-    checked_points = np.zeros((max_checked_points, len(node1)))
+    @IPPerfMonitor
+    def __call__(self,node1: np.ndarray, node2: np.ndarray):
+        return self.checker.lineInCollision(node1, node2)
 
-    checked_points_ind = 0
-    for kappa in range(1, kappa_max+1):
-        n_segments = 2**kappa
+class AdaptiveLineChecker(LineChecker):
+    def __init__(self, coll_checker: CollisionChecker,config:Dict, ):
+        super(AdaptiveLineChecker, self).__init__(coll_checker, config)
+        self.kappa_max = int(np.log2(config["steps"] + 1))
+        if "return_points" in config:
+            self.return_points = config["return_points"]
+        else:
+            self.return_points = False
 
-        # termination condition: small distance between segments -> no collision
-        distance_per_segment = distance / n_segments
-        if distance_per_segment < epsilon:
-            #print(f"fell below minimum distance {epsilon}: {distance_per_segment}")
-            return False, checked_points[:checked_points_ind]
-        
-        for n_segment in range(1, n_segments, 2):
-            ratio = n_segment/n_segments
-            test_point = node1 + ratio*relative_vector
-            checked_points[checked_points_ind] = test_point
-            checked_points_ind += 1
-            collision = coll_checker.pointInCollision(test_point)
-            if collision:
-                return True, checked_points[:checked_points_ind]
+
+    @IPPerfMonitor
+    def __call__(self,node1: np.ndarray, node2: np.ndarray):
+        """
+        Iterative collision check for each segment with increasing kappa until kappa_max
+        """ 
+        relative_vector = node2 - node1
+        distance = np.linalg.norm(relative_vector)
+
+        #Init vector for checked points
+        #steps = 2**kappa_max - 1
+        checked_points = np.zeros((self.config["steps"], len(node1)))
+
+        checked_points_ind = 0
+        for kappa in range(1, self.kappa_max+1):
+            n_segments = 2**kappa
+
+            # termination condition: small distance between segments -> no collision
+            distance_per_segment = distance / n_segments
+            if distance_per_segment < self.config["epsilon"]:
+                if self.return_points:
+                    return False, checked_points[:checked_points_ind]
+                else:
+                    return False
             
-    return False, checked_points[:checked_points_ind]
+            for n_segment in range(1, n_segments, 2):
+                ratio = n_segment/n_segments
+                test_point = node1 + ratio*relative_vector
+                checked_points[checked_points_ind] = test_point
+                checked_points_ind += 1
+                collision = self.checker.pointInCollision(test_point)
+                if collision:
+                    if self.return_points:
+                        return True, checked_points[:checked_points_ind]
+                    else:
+                        return True
+        if self.return_points:    
+            return False, checked_points[:checked_points_ind]
+        else:
+            return False
 
 
 
