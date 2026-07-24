@@ -87,7 +87,7 @@ def _draw_checkpoint_frame(
     ax.set_ylim(ylim)
     ax.set_title(f"SBL checkpoint frame {frame['iteration']}")
     ax.tick_params(axis="both", which="both", length=0)
-    ax.legend(loc="upper left")
+    #ax.legend(loc="upper left")
 
 
 def export_gif(

@@ -4,19 +4,25 @@ from shapely.geometry import Polygon
 from shapely import box, plotting
 import networkx as nx
 from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 import numpy as np
 from typing import Dict, List, Any, Optional
+from modules.SearchTree import SearchTree
 from planners import SBL
+from modules.node import Node
 
 
-def sblVisualize(planner:SBL.BidirectionalSBL,solution:List,ax:Axes, nodeSize: Optional[int] = 100):
+def sblVisualize(planner:SBL.BidirectionalSBL,solution:List[Node],ax:Axes, nodeSize: Optional[int] = 100):
     """ Draw graph, obstacles and solution in a axis environment of matplotib.
     """
     # get a list of positions of all nodes by returning the content of the attribute 'pos'
     collChecker = planner._collisionChecker
 
     collChecker.drawObstacles(ax)
-    plot_iteration(ax,planner.startTree,planner.goalTree,path=planner.path)
+
+    # Prefer an explicitly provided solution path; fall back to the
+    # planner's internal path for backward compatibility.
+    plot_iteration(ax, planner.startTree, planner.goalTree, path=solution)
     
     """
     pos = nx.get_node_attributes(graph,'pos')
@@ -190,23 +196,39 @@ def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: s
     ax.scatter(xs, ys, c=color, s=node_size, alpha=alpha, edgecolors="black", linewidths=0.5,label=tree_type)
 
 
-def plot_path(ax:Axes, path, color="black", annotateOrder = True, collision_index: int = None, collision_color: str = "purple"):
+def plot_path(
+    ax: Axes,
+    path,
+    color: str = "green",
+    annotateOrder: bool = True,
+    collision_index: int = None,
+    collision_color: str = "purple",
+    line_width: float = 3.0,
+):
     coords = _path_to_coordinates(path)
     if not coords:
         return
     path_arr = np.vstack(coords)
 
     if collision_index is None or collision_index < 0 or collision_index >= len(path_arr) - 1:
-        ax.plot(path_arr[:, 0], path_arr[:, 1], marker="o", color=color, linewidth=2.5, markersize=5)
+        # Full solution path in a single color, thicker than the tree edges
+        ax.plot(
+            path_arr[:, 0],
+            path_arr[:, 1],
+            #marker="o",
+            color=color,
+            linewidth=line_width,
+            markersize=5,
+        )
     else:
         for idx in range(len(path_arr) - 1):
             segment_color = collision_color if idx == collision_index else color
             ax.plot(
                 path_arr[idx:idx + 2, 0],
                 path_arr[idx:idx + 2, 1],
-                marker="o",
+                #marker="o",
                 color=segment_color,
-                linewidth=2.5,
+                linewidth=line_width,
                 markersize=5,
             )
 
@@ -220,9 +242,9 @@ def annotatePathOrder(ax,path):
 
 def plot_iteration(
     ax: Axes,
-    start_tree,
-    goal_tree,
-    path=None,
+    start_tree: SearchTree,
+    goal_tree: SearchTree,
+    path: Optional[List[Node]] = None,
     collision: bool = False,
     collision_index: int = None,
 ):
@@ -231,23 +253,52 @@ def plot_iteration(
     plot_tree(ax, goal_tree, color="cyan", node_size=35, tree_type="goal")
     
     # Normalize path for plotting: may be a ``List[Node]`` or a list of
-    # coordinate lists/arrays (from checkpoints).
-    coords = _path_to_coordinates(path) if path is not None else []
-
-    if collision and coords:
-        colliding_edge_p1 = coords[collision_index]
-        colliding_edge_p2 = coords[collision_index + 1]
-        ax.plot(
-            [colliding_edge_p1[0], colliding_edge_p2[0]],
-            [colliding_edge_p1[1], colliding_edge_p2[1]],
-            color="purple",
-        )
-
-
-    if coords:
-        annotatePathOrder(
+    # coordinate lists/arrays (from checkpoints). If provided, draw the
+    # full solution path thicker than the tree edges and highlight any
+    # colliding segment.
+    if path is not None:
+        plot_path(
             ax,
-            np.vstack(coords),
+            path,
+            color="green",              # keep solution path in green
+            annotateOrder=False,
+            collision_index=collision_index if collision else None,
+            collision_color="purple",   # colliding edge in purple
+            line_width=3.0,              # thicker than tree edges (1.2)
         )
+        # Mark start and goal points in special colors based on the path
+        coords = _path_to_coordinates(path)
+        if coords:
+            start = coords[0]
+            goal  = coords[-1]
+            ax.scatter(
+                start[0],
+                start[1],
+                label="Startpoint",
+                c="blue",
+                s=80,
+            )
+            ax.scatter(
+                goal[0],
+                goal[1],
+                label="Goalpoint",
+                c="cyan",
+                s=80,
+            )
+
+    # Build legend: existing scatter markers (start/goal, tree nodes)
+    # plus line color coding for edge status.
+    existing_handles, existing_labels = ax.get_legend_handles_labels()
+
+    line_handles = [
+        Line2D([0], [0], color="yellow", lw=2, label="edge: unknown/unchecked"),
+        Line2D([0], [0], color="green", lw=2, label="edge: valid"),
+        Line2D([0], [0], color="red", lw=2, label="edge: invalid"),
+        Line2D([0], [0], color="purple", lw=2, label="edge: colliding"),
+    ]
+
+    handles = existing_handles + line_handles
+    labels = existing_labels + [h.get_label() for h in line_handles]
+    ax.legend(handles=handles, labels=labels, loc="best")
 
     ax.set_aspect("equal", adjustable="box")
