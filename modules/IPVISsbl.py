@@ -9,14 +9,14 @@ from typing import Dict, List, Any, Optional
 from planners import SBL
 
 
-def sblVisualize(planner:SBL.BidirectionalSBL,solution:List,ax:Optional[Axes] = None, nodeSize: Optional[int] = 100):
+def sblVisualize(planner:SBL.BidirectionalSBL,solution:List,ax:Axes, nodeSize: Optional[int] = 100):
     """ Draw graph, obstacles and solution in a axis environment of matplotib.
     """
     # get a list of positions of all nodes by returning the content of the attribute 'pos'
     collChecker = planner._collisionChecker
 
     collChecker.drawObstacles(ax)
-    plot_iteration(ax,planner.startTree,planner.goalTree,path=solution)
+    plot_iteration(ax,planner.startTree,planner.goalTree,path=planner.path)
     
     """
     pos = nx.get_node_attributes(graph,'pos')
@@ -37,7 +37,7 @@ def sblVisualize(planner:SBL.BidirectionalSBL,solution:List,ax:Optional[Axes] = 
 
     
     # draw nodes based on solution path
-    Gsp = nx.subgraph(graph,solution)
+    Gsp = nx.subgraph(graph,planner.path)
     nx.draw_networkx_nodes(Gsp,pos,
                             node_size=nodeSize*1.5,
                              node_color='g',  ax = ax)

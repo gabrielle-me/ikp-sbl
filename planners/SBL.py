@@ -208,14 +208,19 @@ class BidirectionalSBL(PRMBase):
     def planPath(self,
         start: List[float],
         goal: List[float],
-        config: Optional[Dict] = None) -> List:
-        """Wrapper to make this planner compatible with lecture planners"""
+        config: Optional[Dict] = None) -> List[Optional[Node]]:
+        """Wrapper to make this planner compatible with lecture planners.
+        Returns nodes in start to goal order"""
         if config:
             self.config = self._merge_config(config)
             
-        self.startTree, self.goalTree, path = self.plan_path(start,goal)
-        if path:
-            return path
+        self.startTree, self.goalTree, self.path = self.plan_path(start,goal)
+        if self.path:
+            if self._active.name == "start":
+                return self.path
+            else:
+                # reverse path node order
+                return self.path[::-1]
         else:
             return []
     
@@ -341,19 +346,19 @@ class BidirectionalSBL(PRMBase):
         for iteration in range(int(self.config["max_nodes"])):
             # 1. Pick a tree to expand at random with probability P=0.5
             if random.random() < 0.5:
-                active, passive = tree_start, tree_goal
+                self._active, self._passive = tree_start, tree_goal
             else:
-                active, passive = tree_goal, tree_start
+                self._active, self._passive = tree_goal, tree_start
 
             # 2. Expand the active tree by creating a single node
-            new_node = self._expand_tree(active, passive, repair_focus)
+            new_node = self._expand_tree(self._active, self._passive, repair_focus)
 
             # If no new node was added (e.g., sample in collision), skip this iteration
             if new_node is None:
                 continue
 
             # 3. Attempt to connect the trees based on proximity
-            connection_start, connection_goal = self._try_connect(active, passive, new_node)
+            connection_start, connection_goal = self._try_connect(self._active, self._passive, new_node)
             if connection_start and connection_goal:
                 # Returns the candidate path as a list of Node objects
                 return tree_start, tree_goal, connection_start, connection_goal
