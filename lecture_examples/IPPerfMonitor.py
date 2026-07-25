@@ -7,8 +7,11 @@ License is based on Creative Commons: Attribution-NonCommercial 4.0 Internationa
 """
 
 
+from typing import Tuple
+
 import pandas
 import time
+import numpy as np
 
 class IPPerfMonitor(object):
     """
@@ -58,6 +61,11 @@ class IPPerfMonitor(object):
        "Clear data"
        for f in IPPerfMonitor.__instances:
             del IPPerfMonitor.__instances[f].data[:]
-
+            
+    @staticmethod
+    def get_time(func_name: str) -> Tuple[np.float64, int]:
+        df = IPPerfMonitor.dataFrame()
+        times = df[df["name"]==func_name]["time"]
+        return  times.sum(), len(times)
     
 
