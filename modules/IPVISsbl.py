@@ -373,7 +373,7 @@ def plot_iteration(
     existing_handles, existing_labels = ax.get_legend_handles_labels()
 
     line_handles = [
-        Line2D([0], [0], color="yellow", lw=2, label="edge: unknown/unchecked"),
+        Line2D([0], [0], color="yellow", lw=2, label="edge: unchecked"),
         Line2D([0], [0], color="green", lw=2, label="edge: valid"),
         Line2D([0], [0], color="red", lw=2, label="edge: invalid"),
         Line2D([0], [0], color="purple", lw=2, label="bridge: colliding"),
@@ -381,6 +381,6 @@ def plot_iteration(
 
     handles = existing_handles + line_handles
     labels = existing_labels + [h.get_label() for h in line_handles]
-    ax.legend(handles=handles, labels=labels, loc="best")
+    ax.legend(handles=handles, labels=labels, bbox_to_anchor=(1.35,1))
 
     ax.set_aspect("equal", adjustable="box")

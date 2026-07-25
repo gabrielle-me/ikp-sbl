@@ -71,11 +71,16 @@ class BidirectionalSBL(PRMBase):
         passive_tree: SearchTree,
         new_node_id: int,
     ) -> Tuple[Optional[List[Node]],Optional[List[Node]]]:
-        """SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
+        """
+        SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
         Only returns paths that use non-invalid edges.
 
-        Returns a list of :class:`Node` objects describing the candidate
-        connection path.
+        Returns
+        -------
+        path_a
+            Path from root of active tree to leaf that builds connection between trees
+        path_b
+            Path from root of passive tree to leaf that builds connection between trees
         """
         v_pos = active_tree.position(new_node_id)
         eta = float(self.config["eta"])
@@ -92,8 +97,12 @@ class BidirectionalSBL(PRMBase):
         path_a = active_tree.nodes_to_root(new_node_id)
         path_b = passive_tree.nodes_to_root(v_prime_id)
 
-        path_b_rev = path_b[::-1]
-        return path_a, path_b_rev
+        #path_b_rev = path_b[::-1]
+        #return path_a, path_b_rev
+        if active_tree.name == "start":
+            return path_a, path_b
+        else:
+            return path_b, path_a
 
     @IPPerfMonitor
     def _expand_tree(
@@ -239,23 +248,20 @@ class BidirectionalSBL(PRMBase):
         with path.open("w", encoding="utf-8") as file_handle:
             json.dump(payload, file_handle, indent=2)
 
-
-    def order_path(self,path):
-        if path:
-            if self._active.name == "start":
-                return path
-            else:
-                # reverse path node order
-                return path[::-1]
-        else:
-            return []
     
     @IPPerfMonitor
     def planPath(self,
         start: List[float],
         goal: List[float],
         config: Optional[Dict] = None) -> List[Optional[Node]]:
-        """Grow two search trees using SBL and optionally visualize / record."""
+        """
+        Grow two search trees using SBL and optionally visualize / record.
+        
+        Returns
+        -------
+        path
+            List of nodes from start tree root to goal tree root
+        """
         if config:
             self.config = self._merge_config(config)
         # Initialize the clean stats object
@@ -271,19 +277,19 @@ class BidirectionalSBL(PRMBase):
             #print(f"Iteration {n_iter}")
             
             # Pass repair_focus to iteration
-            start_tree, goal_tree, path_a, path_b = self.iterate_trees(tree_start, tree_goal, repair_focus)
+            start_tree, goal_tree, start_path, goal_path = self.iterate_trees(tree_start, tree_goal, repair_focus)
             
             collision = False
             collision_index = None
             
-            if path_a and path_b:
+            if start_path and goal_path:
                 self.stats.candidate_paths_checked += 1
                 if self.stats.time_to_first_candidate is None:
                     self.stats.time_to_first_candidate = time.perf_counter() - start_time
                     
                 # Unpack 5 values to support both the graph tools and the repair focus
-                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, path_a,path_b)
-                path = path_a+path_b
+                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, start_path,goal_path)
+                path = start_path + goal_path[::-1]
                 
                 # Update focus point for the next iteration if the path broke
                 repair_focus = new_focus if collision else None
@@ -347,7 +353,7 @@ class BidirectionalSBL(PRMBase):
         self.startTree = start_tree
         self.goalTree = goal_tree
         if self.stats.success:
-            return self.order_path(path)
+            return path
         return None
 
     def init_trees(
@@ -374,6 +380,17 @@ class BidirectionalSBL(PRMBase):
         ) -> Tuple[SearchTree, SearchTree, Optional[List[Node]], Optional[List[Node]]]:
         """
         Perform 1 iteration of expanding tree and checking connectivity
+
+        Returns
+        -------
+        start tree
+            SearchTree
+        goal tree
+            SearchTree
+        start connection
+            connection from start tree root to bridge leaf
+        goal connection
+            connection from goal tree root to bridge leaf
         """
         for iteration in range(int(self.config["max_nodes"])):
             # 1. Pick a tree to expand at random with probability P=0.5
@@ -392,7 +409,6 @@ class BidirectionalSBL(PRMBase):
             # 3. Attempt to connect the trees based on proximity
             connection_start, connection_goal = self._try_connect(self._active, self._passive, new_node)
             if connection_start and connection_goal:
-                # Returns the candidate path as a list of Node objects
                 return tree_start, tree_goal, connection_start, connection_goal
 
         return tree_start, tree_goal, None, None
@@ -400,8 +416,8 @@ class BidirectionalSBL(PRMBase):
     def collision_check_solution(
         self,
         tree_start: SearchTree, tree_goal: SearchTree,
-        connection_a: List[Node],
-        connection_b: List[Node],
+        connection_start: List[Node], #root to leaf
+        connection_goal: List[Node], #root to leaf
     ) -> Tuple[bool, Optional[int], SearchTree, SearchTree, Optional[List[float]]]:
         """
         Adaptive collision check for a candidate path.
@@ -409,32 +425,32 @@ class BidirectionalSBL(PRMBase):
         """
         unchecked_nodes: List[Tuple[int, Node, Node]] = []
 
-        connection_b_rev = connection_b[::-1]
-        counter_a = 0
-        counter_b = 0
-        a_done = len(connection_a) < 2
-        b_done = len(connection_b) < 2
+        connection_goal_rev = connection_goal[::-1]
+        counter_start = 0
+        counter_goal = 0
+        start_done = len(connection_start) < 2
+        goal_done = len(connection_goal) < 2
         i = 0
         
         # Alternating edge selection logic
-        while (not a_done) or (not b_done):
-            if (not a_done) and (not b_done):
+        while (not start_done) or (not goal_done):
+            if (not start_done) and (not goal_done):
                 # alternating
-                take_path_b = bool(i%2)
+                take_path_goal = bool(i%2)
                 i+=1
-            elif a_done and (not b_done):
-                # only B
-                take_path_b = True
-            elif (not a_done) and b_done:
-                # only A
-                take_path_b = False
+            elif start_done and (not goal_done):
+                # only Goal
+                take_path_goal = True
+            elif (not start_done) and goal_done:
+                # only Start
+                take_path_goal = False
             else:
-                # A and B done
+                # Start and Goal done
                 raise IndexError("loop too long")
 
-            if take_path_b:
+            if take_path_goal:
                 # only sample from B
-                node1 = connection_b_rev[counter_b]
+                node1 = connection_goal[counter_goal]
                 # Segment index within the full path ``connection_a + connection_b``.
                 #
                 # Path segments are indexed as follows:
@@ -445,22 +461,22 @@ class BidirectionalSBL(PRMBase):
                 # We iterate edges of ``connection_b`` using ``connection_b_rev`` from
                 # the end of the path back towards the bridge, so the first B edge
                 # we check corresponds to the last segment index in the path.
-                node_idx = len(connection_a) + len(connection_b) - 2 - counter_b
-                counter_b += 1
-                node2 = connection_b_rev[counter_b]
-                if counter_b + 1 == len(connection_b):
-                    b_done = True
+                node_idx = len(connection_start) + len(connection_goal) - 2 - counter_goal
+                counter_goal += 1
+                node2 = connection_goal[counter_goal]
+                if counter_goal + 1 == len(connection_goal):
+                    goal_done = True
             else:
                 # only sample from A
-                node1 = connection_a[counter_a]
+                node1 = connection_start[counter_start]
                 # Edges inside ``connection_a`` are between consecutive nodes
                 # ``connection_a[k]`` and ``connection_a[k+1]`` and correspond
                 # to path segment index ``k`` in ``connection_a + connection_b``.
-                node_idx = counter_a
-                counter_a += 1
-                node2 = connection_a[counter_a]
-                if counter_a + 1 == len(connection_a):
-                    a_done = True
+                node_idx = counter_start
+                counter_start += 1
+                node2 = connection_start[counter_start]
+                if counter_start + 1 == len(connection_start):
+                    start_done = True
 
             # Check if edge was already validated (same tree)
             tree = tree_start if node1.tree == "start" else tree_goal
@@ -483,7 +499,7 @@ class BidirectionalSBL(PRMBase):
         # Bridge segment between the two trees connects the last node of A to
         # the first node of B. Its segment index in ``connection_a + connection_b``
         # is ``len(connection_a) - 1``.
-        unchecked_nodes.append((len(connection_a) - 1, connection_a[-1], connection_b[0]))
+        unchecked_nodes.append((len(connection_start) - 1, connection_start[-1], connection_goal[0]))
 
         # Check collisions of unknown edges lazily
         checks_performed = 0
