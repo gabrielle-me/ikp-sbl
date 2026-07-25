@@ -256,14 +256,15 @@ class BidirectionalSBL(PRMBase):
         config: Optional[Dict] = None) -> List[Optional[Node]]:
         """
         Grow two search trees using SBL and optionally visualize / record.
-        
-        Returns
-        -------
-        path
-            List of nodes from start tree root to goal tree root
         """
         if config:
             self.config = self._merge_config(config)
+            
+        # Safely unpack 2D lists passed from lecture example IPTestSuite
+        if isinstance(start[0], (list, tuple, np.ndarray)):
+            start = list(start[0])
+            goal = list(goal[0])
+            
         # Initialize the clean stats object
         self.stats = PlannerStats()
         start_time = time.perf_counter()
@@ -274,7 +275,6 @@ class BidirectionalSBL(PRMBase):
         repair_focus = None
 
         for n_iter in tqdm(range(self.config["iterations"])):
-            #print(f"Iteration {n_iter}")
             
             # Pass repair_focus to iteration
             start_tree, goal_tree, start_path, goal_path = self.iterate_trees(tree_start, tree_goal, repair_focus)
@@ -288,14 +288,14 @@ class BidirectionalSBL(PRMBase):
                     self.stats.time_to_first_candidate = time.perf_counter() - start_time
                     
                 # Unpack 5 values to support both the graph tools and the repair focus
-                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, start_path,goal_path)
+                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, start_path, goal_path)
                 path = start_path + goal_path[::-1]
                 
                 # Update focus point for the next iteration if the path broke
                 repair_focus = new_focus if collision else None
             else:
                 path = None
-                print("no path found")
+                # print("no path found")
                 
 
             if self.config["checkpoint_path"]:
@@ -321,22 +321,20 @@ class BidirectionalSBL(PRMBase):
                     },
                 )
                 
-            # CHANGED: Instead of returning, we log the success metrics and 'break' out of the loop
             if path and not collision:
                 self.stats.time_to_first_valid_path = time.perf_counter() - start_time
                 self.stats.success = True
                 
-                # Calculate final path length
-                path_coords = [n.coordinates for n in path]
+                # SAFE MATH: Convert coordinates to numpy arrays before subtraction
+                path_coords = [np.array(n.coordinates) for n in path]
                 self.stats.path_length = sum(np.linalg.norm(path_coords[i+1] - path_coords[i]) for i in range(len(path_coords)-1))
-                break 
+                break
+                
             if not path:
                 # do not do another iteration if current iteration did not find a path
                 break
             
         # --- FINAL STATS CALCULATION ---
-        # This runs after the loop finishes, regardless of whether it succeeded or failed.
-        
         self.stats.planning_time = time.perf_counter() - start_time
         self.stats.total_nodes_start_tree = len(start_tree.node_ids)
         self.stats.total_nodes_goal_tree = len(goal_tree.node_ids)
@@ -348,13 +346,15 @@ class BidirectionalSBL(PRMBase):
                 if status == "unknown": self.stats.edges_unchecked += 1
                 elif status == "valid": self.stats.edges_valid += 1
                 elif status == "invalid": self.stats.edges_invalid += 1
-                
-        # Finally return the result
+
+        # Return results        
         self.startTree = start_tree
         self.goalTree = goal_tree
+        
+        # Always return [] on failure to prevent len() crashing the visualizer!
         if self.stats.success:
             return path
-        return None
+        return []
 
     def init_trees(
         self,
@@ -464,12 +464,18 @@ class BidirectionalSBL(PRMBase):
 
             # Check if edge was already validated (same tree)
             tree = tree_start if node1.tree == "start" else tree_goal
-            edge_status = tree.graph[node1.id][node2.id]["status"]
+            # Check if edge was already validated (same tree)
+            tree = tree_start if node1.tree == "start" else tree_goal
+            
+            # Prevent KeyErrors if the edge or status isn't initialized yet
+            if not tree.graph.has_edge(node1.id, node2.id):
+                edge_status = "unknown"
+            else:
+                edge_status = tree.graph[node1.id][node2.id].get("status", "unknown")
             
             if edge_status == "valid":
                 continue
             elif edge_status == "invalid":
-                # node1 is now always the parent for both trees due to root-to-leaf traversal
                 repair_focus = node1.coordinates.tolist()
                 return True, node_idx, tree_start, tree_goal, repair_focus
             else:
