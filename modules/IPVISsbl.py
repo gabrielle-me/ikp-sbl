@@ -4,19 +4,25 @@ from shapely.geometry import Polygon
 from shapely import box, plotting
 import networkx as nx
 from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 import numpy as np
 from typing import Dict, List, Any, Optional
+from modules.SearchTree import SearchTree
 from planners import SBL
+from modules.node import Node
 
 
-def sblVisualize(planner:SBL.BidirectionalSBL,solution:List,ax:Optional[Axes] = None, nodeSize: Optional[int] = 100):
+def sblVisualize(planner:SBL.BidirectionalSBL,solution:List[Node],ax:Axes, nodeSize: Optional[int] = 100):
     """ Draw graph, obstacles and solution in a axis environment of matplotib.
     """
     # get a list of positions of all nodes by returning the content of the attribute 'pos'
     collChecker = planner._collisionChecker
 
     collChecker.drawObstacles(ax)
-    plot_iteration(ax,planner.startTree,planner.goalTree,path=solution)
+
+    # Prefer an explicitly provided solution path; fall back to the
+    # planner's internal path for backward compatibility.
+    plot_iteration(ax, planner.startTree, planner.goalTree, path=solution)
     
     """
     pos = nx.get_node_attributes(graph,'pos')
@@ -37,7 +43,7 @@ def sblVisualize(planner:SBL.BidirectionalSBL,solution:List,ax:Optional[Axes] = 
 
     
     # draw nodes based on solution path
-    Gsp = nx.subgraph(graph,solution)
+    Gsp = nx.subgraph(graph,planner.path)
     nx.draw_networkx_nodes(Gsp,pos,
                             node_size=nodeSize*1.5,
                              node_color='g',  ax = ax)
@@ -110,7 +116,15 @@ def _path_to_coordinates(path: Any) -> List[np.ndarray]:
     return [np.asarray(p) for p in path]
 
 
-def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: str = None):
+def plot_tree(
+    ax: Axes,
+    tree,
+    color: str = "blue",
+    node_size: int = 30,
+    alpha: float = 0.6,
+    tree_type: str = None,
+    solution_path=None,
+):
     """Plot a search tree with edge styling based on planner status.
 
     Edge colors:
@@ -126,16 +140,49 @@ def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: s
 
     The ``color`` argument controls the node color (kept for backward
     compatibility with earlier plotting code).
+
+    If ``solution_path`` is provided (either as ``List[Node]`` or a list of
+    raw coordinates), edges belonging to that path are drawn thicker instead
+    of re-plotting the path separately.
     """
     tree = _as_graph(tree)
     positions = nx.get_node_attributes(tree, "pos")
     if not positions:
         return
 
+    # Normalize the solution path (if any) to a list of coordinate arrays.
+    solution_coords = _path_to_coordinates(solution_path) if solution_path is not None else []
+
+    # Build a set of node-UID pairs that lie on the solution path for this tree
+    solution_edges: set[tuple[Any, Any]] = set()
+    if solution_coords:
+        # Map from coordinates to actual node IDs in this tree.
+        coord_to_uid: Dict[tuple, Any] = {tuple(pos): uid for uid, pos in positions.items()}
+
+        for i in range(len(solution_coords) - 1):
+            a = solution_coords[i]
+            b = solution_coords[i + 1]
+            key_a = tuple(a)
+            key_b = tuple(b)
+            uid_a = coord_to_uid.get(key_a)
+            uid_b = coord_to_uid.get(key_b)
+            if uid_a is not None and uid_b is not None:
+                solution_edges.add((uid_a, uid_b))
+                solution_edges.add((uid_b, uid_a))  # graph is undirected
+
     # Group edge segments by status / collision flag
     edges_with_data = list(tree.edges(data=True))
     if edges_with_data:
         segments_by_key = {
+            "unknown": [],
+            "valid": [],
+            "invalid": [],
+            "collision": [],
+            "unreachable": [],
+        }
+
+        # Parallel list of linewidths for each segment
+        linewidths_by_key = {
             "unknown": [],
             "valid": [],
             "invalid": [],
@@ -150,7 +197,14 @@ def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: s
                 key = data.get("status", "unknown")
                 if key not in segments_by_key:
                     key = "unknown"
+
             segments_by_key[key].append([positions[u], positions[v]])
+
+            # Make edges in the solution path thicker
+            if (u, v) in solution_edges:
+                linewidths_by_key[key].append(3.0)
+            else:
+                linewidths_by_key[key].append(1.2)
 
         color_map = {
             "unknown": "yellow",
@@ -167,7 +221,6 @@ def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: s
             "collision": "-",
         }
 
-
         for key, segments in segments_by_key.items():
             if not segments:
                 continue
@@ -179,7 +232,7 @@ def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: s
             collection = LineCollection(
                 segments,
                 colors=color_map[key],
-                linewidths=1.2,
+                linewidths=linewidths_by_key[key],
                 alpha=edge_alpha,
                 linestyles=line_style_map[key],
             )
@@ -187,26 +240,42 @@ def plot_tree(ax:Axes, tree, color="blue", node_size=20, alpha=0.6, tree_type: s
 
     xs = [pos[0] for pos in positions.values()]
     ys = [pos[1] for pos in positions.values()]
-    ax.scatter(xs, ys, c=color, s=node_size, alpha=alpha, edgecolors="black", linewidths=0.5,label=tree_type)
+    ax.scatter(xs, ys, c=color, s=node_size, alpha=alpha, edgecolors="black", linewidths=0.5, label=tree_type)
 
 
-def plot_path(ax:Axes, path, color="black", annotateOrder = True, collision_index: int = None, collision_color: str = "purple"):
+def plot_path(
+    ax: Axes,
+    path,
+    color: str = "green",
+    annotateOrder: bool = True,
+    collision_index: int = None,
+    collision_color: str = "purple",
+    line_width: float = 3.0,
+):
     coords = _path_to_coordinates(path)
     if not coords:
         return
     path_arr = np.vstack(coords)
 
     if collision_index is None or collision_index < 0 or collision_index >= len(path_arr) - 1:
-        ax.plot(path_arr[:, 0], path_arr[:, 1], marker="o", color=color, linewidth=2.5, markersize=5)
+        # Full solution path in a single color, thicker than the tree edges
+        ax.plot(
+            path_arr[:, 0],
+            path_arr[:, 1],
+            #marker="o",
+            color=color,
+            linewidth=line_width,
+            markersize=5,
+        )
     else:
         for idx in range(len(path_arr) - 1):
             segment_color = collision_color if idx == collision_index else color
             ax.plot(
                 path_arr[idx:idx + 2, 0],
                 path_arr[idx:idx + 2, 1],
-                marker="o",
+                #marker="o",
                 color=segment_color,
-                linewidth=2.5,
+                linewidth=line_width,
                 markersize=5,
             )
 
@@ -220,34 +289,98 @@ def annotatePathOrder(ax,path):
 
 def plot_iteration(
     ax: Axes,
-    start_tree,
-    goal_tree,
-    path=None,
+    start_tree: SearchTree,
+    goal_tree: SearchTree,
+    path: Optional[List[Node]] = None,
     collision: bool = False,
     collision_index: int = None,
+    bridge_index: int = None,
+    bridge_status: Optional[str] = None,
 ):
-    """Draw one planning iteration with bidirectional trees and the current path."""
-    plot_tree(ax, start_tree, color="blue", node_size=35, tree_type="start")
-    plot_tree(ax, goal_tree, color="cyan", node_size=35, tree_type="goal")
-    
-    # Normalize path for plotting: may be a ``List[Node]`` or a list of
-    # coordinate lists/arrays (from checkpoints).
+    """Draw one planning iteration with bidirectional trees and the current path.
+
+    The solution path is emphasized by thicker edges inside the trees instead of
+    being plotted as a separate polyline. The bridge segment connecting the
+    start and goal trees is drawn explicitly in the appropriate color.
+    """
+    # Normalize path representation for bridge visualization and potential
+    # future annotations, but DO NOT use it to infer which endpoint is the
+    # start vs goal. The actual start/goal points are defined by the roots
+    # of the corresponding trees.
     coords = _path_to_coordinates(path) if path is not None else []
 
-    if collision and coords:
-        colliding_edge_p1 = coords[collision_index]
-        colliding_edge_p2 = coords[collision_index + 1]
-        ax.plot(
-            [colliding_edge_p1[0], colliding_edge_p2[0]],
-            [colliding_edge_p1[1], colliding_edge_p2[1]],
-            color="purple",
-        )
+    plot_tree(ax, start_tree, color="blue", node_size=35, tree_type="start", solution_path=path)
+    plot_tree(ax, goal_tree, color="cyan", node_size=35, tree_type="goal", solution_path=path)
 
+    # Mark start and goal points using the tree roots to avoid any ambiguity
+    # from path ordering. This guarantees that the blue marker is always at
+    # the root of the start tree and the cyan marker at the root of the goal
+    # tree, even if the stored path happens to be ordered goal->start.
+    start_root = np.asarray(start_tree.position(start_tree.root))
+    goal_root = np.asarray(goal_tree.position(goal_tree.root))
+    ax.scatter(
+        start_root[0],
+        start_root[1],
+        label="Startpoint",
+        c="blue",
+        s=80,
+    )
+    ax.scatter(
+        goal_root[0],
+        goal_root[1],
+        label="Goalpoint",
+        c="cyan",
+        s=80,
+    )
 
-    if coords:
-        annotatePathOrder(
-            ax,
-            np.vstack(coords),
-        )
+    # Draw the explicit bridge segment between start and goal trees.
+    #
+    # Color semantics:
+    #   - When ``bridge_status`` is provided by checkpoints:
+    #       * "valid"     -> green
+    #       * "collision" -> purple
+    #       * "unknown"   -> yellow (not yet checked when another
+    #                           segment caused the collision)
+    #   - For live use (no ``bridge_status`` provided), fall back to the
+    #     previous behavior based on ``collision`` and ``collision_index``.
+    if len(coords) >= 2 and bridge_index is not None:
+        if 0 <= bridge_index < len(coords) - 1:
+            a = coords[bridge_index]
+            b = coords[bridge_index + 1]
+
+            if bridge_status == "collision":
+                bridge_color = "purple"
+            elif bridge_status == "valid":
+                bridge_color = "green"
+            elif bridge_status == "unknown":
+                bridge_color = "yellow"
+            else:
+                # Backwards-compatible fallback for live visualization
+                if collision and collision_index is not None and collision_index == bridge_index:
+                    bridge_color = "purple"
+                else:
+                    bridge_color = "green"
+
+            ax.plot(
+                [a[0], b[0]],
+                [a[1], b[1]],
+                color=bridge_color,
+                linewidth=3.0,
+            )
+
+    # Build legend: existing scatter markers (start/goal, tree nodes)
+    # plus line color coding for edge status.
+    existing_handles, existing_labels = ax.get_legend_handles_labels()
+
+    line_handles = [
+        Line2D([0], [0], color="yellow", lw=2, label="edge: unchecked"),
+        Line2D([0], [0], color="green", lw=2, label="edge: valid"),
+        Line2D([0], [0], color="red", lw=2, label="edge: invalid"),
+        Line2D([0], [0], color="purple", lw=2, label="bridge: colliding"),
+    ]
+
+    handles = existing_handles + line_handles
+    labels = existing_labels + [h.get_label() for h in line_handles]
+    ax.legend(handles=handles, labels=labels, bbox_to_anchor=(1.35,1))
 
     ax.set_aspect("equal", adjustable="box")

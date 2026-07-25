@@ -63,7 +63,8 @@ def get_free_space(scene:Dict, scene_limits:np.ndarray):
     # 3.  Get the raw free space
     return workspace.difference(all_obstacles)
 
-def get_valid_start_and_goal(free_space, max_iter=20):
+def get_valid_start_and_goal(free_space, scene_limits: np.ndarray, max_iter=20, min_dist_ratio: Optional[float]=0.25, max_dist_ratio:Optional[float]=0.8):
+    diagonal = np.linalg.norm(scene_limits[:,1] - scene_limits[:,0])
     # Ensure we are working with a MultiPolygon structure for consistency
     if free_space.geom_type == 'Polygon':
         components = [free_space]
@@ -95,7 +96,7 @@ def get_valid_start_and_goal(free_space, max_iter=20):
     # Ensure start and goal aren't on top of each other
     for i in range(max_iter):
         goal_point = sample_point_in_poly(largest_free_zone)
-        if start_point.distance(goal_point) < 20.0:  # Minimum distance requirement      
+        if min_dist_ratio<start_point.distance(goal_point)/diagonal < max_dist_ratio:  # Minimum distance requirement      
             return point2array(start_point), point2array(goal_point), largest_free_zone
     return None, None
 
@@ -113,7 +114,7 @@ def create_random_benchmark(scene_limits: np.ndarray,
         description = f"randomly generated scene\nlimits: {scene_limits}\nRandom seed: {np.random.seed}\n#polygons: {n_polygons}\n#strings: {n_strings}\n#points: {n_points}"
         scene = create_random_field(scene_limits, n_polygons, n_strings,n_points)
         free_space = get_free_space(scene, scene_limits)
-        start_point, goal_point, free_zone = get_valid_start_and_goal(free_space)
+        start_point, goal_point, free_zone = get_valid_start_and_goal(free_space,scene_limits)
         if isinstance(start_point,np.ndarray) and isinstance(goal_point,np.ndarray):
             cc = CollisionChecker(scene)
             return Benchmark(name,cc,[start_point],[goal_point],description,level)
