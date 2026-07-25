@@ -17,12 +17,26 @@ def sblVisualize(planner:SBL.BidirectionalSBL,solution:List[Node],ax:Axes, nodeS
     """
     # get a list of positions of all nodes by returning the content of the attribute 'pos'
     collChecker = planner._collisionChecker
-
     collChecker.drawObstacles(ax)
 
-    # Prefer an explicitly provided solution path; fall back to the
-    # planner's internal path for backward compatibility.
-    plot_iteration(ax, planner.startTree, planner.goalTree, path=solution)
+    # 1. Find the bridge index by checking where the path switches trees
+    bridge_idx = None
+    if solution:
+        for i in range(len(solution) - 1):
+            if solution[i].tree != solution[i+1].tree:
+                bridge_idx = i
+                break
+
+    # 2. Pass the bridge_index to plot_iteration
+    # We can also explicitly pass collision=False so the fallback color is green.
+    plot_iteration(
+        ax, 
+        planner.startTree, 
+        planner.goalTree, 
+        path=solution,
+        bridge_index=bridge_idx,
+        collision=False 
+    )
     
     """
     pos = nx.get_node_attributes(graph,'pos')
@@ -80,9 +94,9 @@ def drawScene(ax: Axes, content:Dict, starts=None, goals=None, lines=None):
         for start, end, color in lines:
             ax.plot([start[0], end[0]], [start[1], end[1]], color=color, linewidth=2)
     if starts:
-        ax.scatter([p[0] for p in starts], [p[1] for p in starts], color="green", s=80, label="start")
+        ax.scatter([p[0] for p in starts], [p[1] for p in starts], color="green", s=80, label="Start")
     if goals:
-        ax.scatter([p[0] for p in goals], [p[1] for p in goals], color="orange", s=80, label="goal")
+        ax.scatter([p[0] for p in goals], [p[1] for p in goals], color="orange", s=80, label="Goal")
 
 def _as_graph(tree):
     if hasattr(tree, "graph"):
@@ -309,8 +323,8 @@ def plot_iteration(
     # of the corresponding trees.
     coords = _path_to_coordinates(path) if path is not None else []
 
-    plot_tree(ax, start_tree, color="blue", node_size=35, tree_type="start", solution_path=path)
-    plot_tree(ax, goal_tree, color="cyan", node_size=35, tree_type="goal", solution_path=path)
+    plot_tree(ax, start_tree, color="blue", node_size=35, tree_type="Start Tree", solution_path=path)
+    plot_tree(ax, goal_tree, color="cyan", node_size=35, tree_type="Goal Tree", solution_path=path)
 
     # Mark start and goal points using the tree roots to avoid any ambiguity
     # from path ordering. This guarantees that the blue marker is always at
@@ -324,6 +338,8 @@ def plot_iteration(
         label="Startpoint",
         c="blue",
         s=80,
+        linewidths=2,
+        edgecolors="black"
     )
     ax.scatter(
         goal_root[0],
@@ -331,6 +347,8 @@ def plot_iteration(
         label="Goalpoint",
         c="cyan",
         s=80,
+        linewidths=2,
+        edgecolors="black"
     )
 
     # Draw the explicit bridge segment between start and goal trees.
@@ -373,10 +391,10 @@ def plot_iteration(
     existing_handles, existing_labels = ax.get_legend_handles_labels()
 
     line_handles = [
-        Line2D([0], [0], color="yellow", lw=2, label="edge: unchecked"),
-        Line2D([0], [0], color="green", lw=2, label="edge: valid"),
-        Line2D([0], [0], color="red", lw=2, label="edge: invalid"),
-        Line2D([0], [0], color="purple", lw=2, label="bridge: colliding"),
+        Line2D([0], [0], color="yellow", lw=2, label="Edge: unknown"),
+        Line2D([0], [0], color="green", lw=2, label="Edge: valid"),
+        Line2D([0], [0], color="red", lw=2, label="Edge: invalid"),
+        Line2D([0], [0], color="purple", lw=2, label="Bridge: colliding"),
     ]
 
     handles = existing_handles + line_handles
