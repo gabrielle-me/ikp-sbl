@@ -12,10 +12,14 @@ import random
 
 from IPPerfMonitor import IPPerfMonitor
 
+# Import wrapper function to track collision checks
+from modules.TrackedCollisionChecker import TrackedCollisionChecker
+
 class LazyPRM(PRMBase):
 
     def __init__(self, _collChecker):
-        super(LazyPRM, self).__init__(_collChecker)
+        tracked_checker = TrackedCollisionChecker(_collChecker)
+        super(LazyPRM, self).__init__(tracked_checker)
         
         self.graph = nx.Graph()
         self.lastGeneratedNodeNumber = 0

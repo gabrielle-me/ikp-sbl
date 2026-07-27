@@ -16,10 +16,15 @@ import math
 # reduce coding effort by using function provided by scipy
 from scipy.spatial.distance import euclidean, cityblock
 
+# Import wrapper function to track collision checks
+from modules.TrackedCollisionChecker import TrackedCollisionChecker
+
 class BasicPRM(IPPRMBase.PRMBase):
 
     def __init__(self, _collChecker):
-        super(BasicPRM, self).__init__(_collChecker)
+        # --- WRAP THE CHECKER BEFORE PASSING TO SUPER() ---
+        tracked_checker = TrackedCollisionChecker(_collChecker)
+        super(BasicPRM, self).__init__(tracked_checker)
         self.graph = nx.Graph()
 
     

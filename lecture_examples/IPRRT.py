@@ -15,13 +15,17 @@ import random
 
 from IPPerfMonitor import IPPerfMonitor
 
+# Import wrapper function to track collision checks
+from modules.TrackedCollisionChecker import TrackedCollisionChecker
+
 class RRTSimple(PRMBase):
 
     def __init__(self, _collChecker):
         """
         _collChecker: the collision checker interface
         """
-        super(RRTSimple, self).__init__(_collChecker)
+        tracked_checker = TrackedCollisionChecker(_collChecker)
+        super(RRTSimple, self).__init__(tracked_checker)
         self.graph = nx.Graph()
         self.lastGeneratedNodeNumber = 0
 
