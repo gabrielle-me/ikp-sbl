@@ -3,7 +3,9 @@ from shapely.ops import unary_union
 from shapely import box
 import numpy as np
 from typing import Dict, Optional, Tuple
-np.random.seed(42)
+
+
+np.random.seed(20)
 
 
 from lecture_examples.IPBenchmark import Benchmark
@@ -48,20 +50,27 @@ def create_random_field(scene_limits: np.ndarray, n_polygons: int, n_strings: in
     for i in range(n_points):
         field[f"point{i}"] = random_point(scene_limits)
 
+    # Add tiny invisible corner boundaries so the CollisionChecker 
+    # naturally scales its limits to perfectly match the full scene_limits.
+    field["_boundary_min"] = Point(scene_limits[0, 0], scene_limits[1, 0]).buffer(0.1)
+    field["_boundary_max"] = Point(scene_limits[0, 1], scene_limits[1, 1]).buffer(0.1)
+
     return field
 
-def get_free_space(scene:Dict, scene_limits:np.ndarray):
-    # 1. Define your total map boundary (e.g., 100x100 space)
+def get_free_space(scene: Dict, scene_limits: np.ndarray, clearance: float = 0.35):
+    # 1. Define total map boundary
     ws = list(scene_limits.T.flatten())
     workspace = box(*ws)
 
-    # 2. Combine all your random obstacles into one geometry
-    # (Assuming 'obstacles_list' contains your Points, Polygons, and LineStrings)
+    # 2. Combine all random obstacles into one geometry
     object_list = list(scene.values())
     all_obstacles = unary_union(object_list)
 
-    # 3.  Get the raw free space
-    return workspace.difference(all_obstacles)
+    # 3. Inflate the obstacles by the clearance radius (0.3 visual radius + 0.05 safety margin)
+    padded_obstacles = all_obstacles.buffer(clearance)
+
+    # 4. Subtract the padded obstacles from the workspace
+    return workspace.difference(padded_obstacles)
 
 def get_valid_start_and_goal(free_space, scene_limits: np.ndarray, max_iter=20, min_dist_ratio: Optional[float]=0.25, max_dist_ratio:Optional[float]=0.8):
     diagonal = np.linalg.norm(scene_limits[:,1] - scene_limits[:,0])
@@ -100,8 +109,8 @@ def get_valid_start_and_goal(free_space, scene_limits: np.ndarray, max_iter=20, 
             return point2array(start_point), point2array(goal_point), largest_free_zone
     return None, None
 
-def point2array(p: Point) -> np.ndarray:
-    return p.coords.__array__()[0]
+def point2array(p: Point) -> list:
+    return [p.x, p.y]
 
 def create_random_benchmark(scene_limits: np.ndarray,
                             name: Optional[str]="Random Benchmark",
@@ -115,8 +124,9 @@ def create_random_benchmark(scene_limits: np.ndarray,
         scene = create_random_field(scene_limits, n_polygons, n_strings,n_points)
         free_space = get_free_space(scene, scene_limits)
         start_point, goal_point, free_zone = get_valid_start_and_goal(free_space,scene_limits)
-        if isinstance(start_point,np.ndarray) and isinstance(goal_point,np.ndarray):
-            cc = CollisionChecker(scene)
+        # Check for standard Python lists to match the professor's data structure
+        if isinstance(start_point, list) and isinstance(goal_point, list):
+            cc = CollisionChecker(scene, limits=scene_limits.tolist())
             return Benchmark(name,cc,[start_point],[goal_point],description,level)
     raise TimeoutError("No starting / goal point found in max. iterations")
     
