@@ -343,7 +343,7 @@ class BidirectionalSBL(PRMBase):
         for tree in [start_tree, goal_tree]:
             for u, v, data in tree.graph.edges(data=True):
                 status = data.get("status", "unknown")
-                if status == "unknown": self.stats.edges_unchecked += 1
+                if status == "unknown": self.stats.edges_unknown += 1
                 elif status == "valid": self.stats.edges_valid += 1
                 elif status == "invalid": self.stats.edges_invalid += 1
 
