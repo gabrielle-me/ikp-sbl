@@ -9,7 +9,7 @@ sys.path.insert(0, str(REPO_ROOT))
 REPO_ROOT
 
 # Import custom modules
-from planners.SBL import BidirectionalSBL
+from planners.SBL import SBL
 from lecture_examples.IPEnvironment import CollisionChecker
 from modules import IPVISsbl
 
@@ -23,7 +23,7 @@ GIF_PATH = REPO_ROOT / "gifs"
 def validate():
     fig,ax = plt.subplots(figsize=(5,5))
     cc = CollisionChecker({})
-    planner = BidirectionalSBL(cc,{"checkpoint_path":str(CHECKPOINT_PATH),
+    planner = SBL(cc,{"checkpoint_path":str(CHECKPOINT_PATH),
                                 "iterations":1,
                                 "goal_bias":0.0})
     start_tree, goal_tree = planner.init_trees(START,GOAL)

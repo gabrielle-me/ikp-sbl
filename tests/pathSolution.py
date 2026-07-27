@@ -9,7 +9,7 @@ sys.path.insert(0, str(REPO_ROOT))
 REPO_ROOT
 
 # Import custom modules
-from planners.SBL import BidirectionalSBL
+from planners.SBL import SBL
 from modules import randomScene, IPVISsbl
 from lecture_examples.IPPerfMonitor import IPPerfMonitor
 
@@ -29,11 +29,11 @@ def validate(n_scenes:int=200):
     IPPerfMonitor.clearData()
     for i in range(n_scenes):
         benchmark = randomScene.create_random_benchmark(SCENE_LIMITS)
-        planner_naive = BidirectionalSBL(benchmark.collisionChecker,{"count_edge_checks":True,
+        planner_naive = SBL(benchmark.collisionChecker,{"count_edge_checks":True,
                                                                     "collision_check": {
                                                                         "adaptive": False,
                                                                         "steps": STEPS,}})
-        planner_adaptive = BidirectionalSBL(benchmark.collisionChecker,{"count_edge_checks":True,
+        planner_adaptive = SBL(benchmark.collisionChecker,{"count_edge_checks":True,
                                                                         "collision_check": {
                                                                             "adaptive":True,
                                                                             "steps": STEPS,
