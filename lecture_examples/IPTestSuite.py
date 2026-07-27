@@ -38,7 +38,6 @@ description = "Planner has to find a narrow passage with a significant extend."
 benchList.append(Benchmark("Fat bottleneck", CollisionChecker(fatBottleNeckField), [[4,21]], [[18,1]], description, 2))
 
 # -----------------------------------------
-
 # myField = dict()
 # myField["L"] = Polygon([(10, 16), (10, 11), (13, 11), (13,12), (11,12), (11,16)])
 # myField["T"] = Polygon([(14,16), (14, 15), (15, 15),(15,11), (16,11), (16,15), (17, 15), (17, 16)])
@@ -55,6 +54,13 @@ benchList.append(Benchmark("Fat bottleneck", CollisionChecker(fatBottleNeckField
 # benchList.append(Benchmark("MyField", CollisionChecker(myField), [[4,21]], [[18,1]], description, 2))
 
 # -----------------------------------------
+openField = dict()
+openField["obs1"] = Polygon([(5, 15), (5, 12), (8, 12), (8, 15)]).buffer(1.0)
+description = "Mainly open space with small obstacle."
+benchList.append(Benchmark("Open Space", CollisionChecker(openField), [[1,2]], [[20,18]], description, 1))
+
+# -----------------------------------------
+
 # Define the boundary limits for your random map as a NumPy array
 # Used same limits as the professor's example for consistency
 scene_bounds = np.array([[0, 22], [0, 22]])
