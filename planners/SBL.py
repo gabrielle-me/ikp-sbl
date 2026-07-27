@@ -256,14 +256,15 @@ class SBL(PRMBase):
         config: Optional[Dict] = None) -> List[Optional[Node]]:
         """
         Grow two search trees using SBL and optionally visualize / record.
-        
-        Returns
-        -------
-        path
-            List of nodes from start tree root to goal tree root
         """
         if config:
             self.config = self._merge_config(config)
+            
+        # Safely unpack 2D lists passed from lecture example IPTestSuite
+        if isinstance(start[0], (list, tuple, np.ndarray)):
+            start = list(start[0])
+            goal = list(goal[0])
+            
         # Initialize the clean stats object
         self.stats = PlannerStats()
         start_time = time.perf_counter()
@@ -274,7 +275,6 @@ class SBL(PRMBase):
         repair_focus = None
 
         for n_iter in tqdm(range(self.config["iterations"])):
-            #print(f"Iteration {n_iter}")
             
             # Pass repair_focus to iteration
             start_tree, goal_tree, start_path, goal_path = self.iterate_trees(tree_start, tree_goal, repair_focus)
@@ -288,14 +288,14 @@ class SBL(PRMBase):
                     self.stats.time_to_first_candidate = time.perf_counter() - start_time
                     
                 # Unpack 5 values to support both the graph tools and the repair focus
-                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, start_path,goal_path)
+                collision, collision_index, start_tree, goal_tree, new_focus = self.collision_check_solution(start_tree, goal_tree, start_path, goal_path)
                 path = start_path + goal_path[::-1]
                 
                 # Update focus point for the next iteration if the path broke
                 repair_focus = new_focus if collision else None
             else:
                 path = None
-                print("no path found")
+                # print("no path found")
                 
 
             if self.config["checkpoint_path"]:
@@ -321,22 +321,20 @@ class SBL(PRMBase):
                     },
                 )
                 
-            # CHANGED: Instead of returning, we log the success metrics and 'break' out of the loop
             if path and not collision:
                 self.stats.time_to_first_valid_path = time.perf_counter() - start_time
                 self.stats.success = True
                 
-                # Calculate final path length
-                path_coords = [n.coordinates for n in path]
+                # SAFE MATH: Convert coordinates to numpy arrays before subtraction
+                path_coords = [np.array(n.coordinates) for n in path]
                 self.stats.path_length = sum(np.linalg.norm(path_coords[i+1] - path_coords[i]) for i in range(len(path_coords)-1))
-                break 
+                break
+                
             if not path:
                 # do not do another iteration if current iteration did not find a path
                 break
             
         # --- FINAL STATS CALCULATION ---
-        # This runs after the loop finishes, regardless of whether it succeeded or failed.
-        
         self.stats.planning_time = time.perf_counter() - start_time
         self.stats.total_nodes_start_tree = len(start_tree.node_ids)
         self.stats.total_nodes_goal_tree = len(goal_tree.node_ids)
@@ -348,13 +346,15 @@ class SBL(PRMBase):
                 if status == "unknown": self.stats.edges_unchecked += 1
                 elif status == "valid": self.stats.edges_valid += 1
                 elif status == "invalid": self.stats.edges_invalid += 1
-                
-        # Finally return the result
+
+        # Return results        
         self.startTree = start_tree
         self.goalTree = goal_tree
+        
+        # Always return [] on failure to prevent len() crashing the visualizer!
         if self.stats.success:
             return path
-        return None
+        return []
 
     def init_trees(
         self,
@@ -416,8 +416,8 @@ class SBL(PRMBase):
     def collision_check_solution(
         self,
         tree_start: SearchTree, tree_goal: SearchTree,
-        connection_start: List[Node], #root to leaf
-        connection_goal: List[Node], #root to leaf
+        connection_start: List[Node], # root to leaf
+        connection_goal: List[Node],  # root to leaf
     ) -> Tuple[bool, Optional[int], SearchTree, SearchTree, Optional[List[float]]]:
         """
         Adaptive collision check for a candidate path.
@@ -425,7 +425,6 @@ class SBL(PRMBase):
         """
         unchecked_nodes: List[Tuple[int, Node, Node]] = []
 
-        connection_goal_rev = connection_goal[::-1]
         counter_start = 0
         counter_goal = 0
         start_done = len(connection_start) < 2
@@ -437,41 +436,26 @@ class SBL(PRMBase):
             if (not start_done) and (not goal_done):
                 # alternating
                 take_path_goal = bool(i%2)
-                i+=1
+                i += 1
             elif start_done and (not goal_done):
-                # only Goal
                 take_path_goal = True
             elif (not start_done) and goal_done:
-                # only Start
                 take_path_goal = False
             else:
-                # Start and Goal done
                 raise IndexError("loop too long")
 
             if take_path_goal:
-                # only sample from B
+                # Goal tree check (Root to Leaf)
                 node1 = connection_goal[counter_goal]
-                # Segment index within the full path ``connection_a + connection_b``.
-                #
-                # Path segments are indexed as follows:
-                #   - edges inside ``connection_a``: 0 .. len(connection_a) - 2
-                #   - bridge between trees:        len(connection_a) - 1
-                #   - edges inside ``connection_b``: len(connection_a) .. len(path) - 2
-                #
-                # We iterate edges of ``connection_b`` using ``connection_b_rev`` from
-                # the end of the path back towards the bridge, so the first B edge
-                # we check corresponds to the last segment index in the path.
+                # node_idx matches the segment in the fully combined path
                 node_idx = len(connection_start) + len(connection_goal) - 2 - counter_goal
                 counter_goal += 1
                 node2 = connection_goal[counter_goal]
                 if counter_goal + 1 == len(connection_goal):
                     goal_done = True
             else:
-                # only sample from A
+                # Start tree check (Root to Leaf)
                 node1 = connection_start[counter_start]
-                # Edges inside ``connection_a`` are between consecutive nodes
-                # ``connection_a[k]`` and ``connection_a[k+1]`` and correspond
-                # to path segment index ``k`` in ``connection_a + connection_b``.
                 node_idx = counter_start
                 counter_start += 1
                 node2 = connection_start[counter_start]
@@ -480,26 +464,25 @@ class SBL(PRMBase):
 
             # Check if edge was already validated (same tree)
             tree = tree_start if node1.tree == "start" else tree_goal
-            edge_status = tree.graph[node1.id][node2.id]["status"]
+            # Check if edge was already validated (same tree)
+            tree = tree_start if node1.tree == "start" else tree_goal
+            
+            # Prevent KeyErrors if the edge or status isn't initialized yet
+            if not tree.graph.has_edge(node1.id, node2.id):
+                edge_status = "unknown"
+            else:
+                edge_status = tree.graph[node1.id][node2.id].get("status", "unknown")
             
             if edge_status == "valid":
-                # Jump to next iteration (next edge)
                 continue
             elif edge_status == "invalid":
-                # Tree-specific repair focus for known invalid edges
-                if node1.tree == "start":
-                    repair_focus = node1.coordinates.tolist()
-                else:
-                    repair_focus = node2.coordinates.tolist()
+                repair_focus = node1.coordinates.tolist()
                 return True, node_idx, tree_start, tree_goal, repair_focus
             else:
                 unchecked_nodes.append((node_idx, node1, node2))
         
-        # Check connection between trees for collision
-        # Bridge segment between the two trees connects the last node of A to
-        # the first node of B. Its segment index in ``connection_a + connection_b``
-        # is ``len(connection_a) - 1``.
-        unchecked_nodes.append((len(connection_start) - 1, connection_start[-1], connection_goal[0]))
+        # The bridge connects the LEAF of start to the LEAF of goal
+        unchecked_nodes.append((len(connection_start) - 1, connection_start[-1], connection_goal[-1]))
 
         # Check collisions of unknown edges lazily
         checks_performed = 0
@@ -507,24 +490,21 @@ class SBL(PRMBase):
             self.stats.line_tests += 1
             checks_performed += 1
             
-            # Check collisions of unknown edges
+            # Check collisions of unknown edges using colleague's new abstract checker
             collision = self._collisionCheckFun(
                 node1.coordinates,
                 node2.coordinates,
             )
 
-
-            # count how often edge was checked:
+            # Count how often edge was checked:
             if self.config["count_edge_checks"]:
                 edge_points = sorted([node1.id, node2.id])
                 edge_id = str(edge_points[0])+str(edge_points[1])
                 if edge_id in self.collision_check_counter:
-                    current_count=self.collision_check_counter[edge_id]
-                    self.collision_check_counter[edge_id] = current_count+1
+                    current_count = self.collision_check_counter[edge_id]
+                    self.collision_check_counter[edge_id] = current_count + 1
                 else:
                     self.collision_check_counter[edge_id] = 1
-
-            # TODO: add option to visualize checked points
 
             repair_focus = None
 
@@ -532,28 +512,26 @@ class SBL(PRMBase):
             if node1.tree == node2.tree == "start":                
                 if collision:
                     tree_start.invalidate_edge(node1.id, node2.id)
-                    repair_focus = node1.coordinates.tolist()  # Parent is node1
+                    repair_focus = node1.coordinates.tolist()
                 else:
                     tree_start.graph[node1.id][node2.id]["status"] = "valid"
                     
             elif node1.tree == node2.tree == "goal":
                 if collision:
                     tree_goal.invalidate_edge(node1.id, node2.id)
-                    repair_focus = node2.coordinates.tolist()  # Parent is node2
+                    repair_focus = node1.coordinates.tolist()
                 else:
                     tree_goal.graph[node1.id][node2.id]["status"] = "valid"
                     
             else:
                 # Collision on the bridge connecting the two trees
                 if collision:
-                    # The bridge isn't natively in either tree's edges, so no tree pruning.
-                    # We just focus repair on the start tree's side of the gap.
                     repair_focus = node1.coordinates.tolist()
 
             # return if collision found
             if collision:
                 self.stats.aborted_adaptive_tests += 1
                 return True, segment_index, tree_start, tree_goal, repair_focus
-            
-        # No invalid edges and no collisions found
+
+        # No invalid edges and no collisions   
         return False, None, tree_start, tree_goal, None
