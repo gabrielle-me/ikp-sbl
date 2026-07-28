@@ -476,6 +476,7 @@ class SBL(PRMBase):
             if edge_status == "valid":
                 continue
             elif edge_status == "invalid":
+                raise RuntimeError(f"Candidate path contains invalid edge {node1} - {node2}")
                 repair_focus = node1.coordinates.tolist()
                 return True, node_idx, tree_start, tree_goal, repair_focus
             else:
