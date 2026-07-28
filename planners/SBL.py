@@ -56,6 +56,7 @@ class BidirectionalSBL(PRMBase):
         self.goalTree = None
         self.collision_check_counter = {}
         self._collisionCheckFun = [LineChecker(coll_checker, self.config["collision_check"]), AdaptiveLineChecker(coll_checker, self.config["collision_check"])][self.config["collision_check"]["adaptive"]]
+        self.failed_bridges = []
                                        
     
     @staticmethod
@@ -527,6 +528,12 @@ class BidirectionalSBL(PRMBase):
                 # Collision on the bridge connecting the two trees
                 if collision:
                     repair_focus = node1.coordinates.tolist()
+                    
+                    # Track the failed bridge for the visualizer
+                    self.failed_bridges.append([
+                        node1.coordinates, 
+                        node2.coordinates
+                    ])
 
             # return if collision found
             if collision:
