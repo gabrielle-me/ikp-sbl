@@ -69,7 +69,7 @@ class SBL(PRMBase):
         self,
         active_tree: SearchTree,
         passive_tree: SearchTree,
-        new_node_id: int,
+        new_node_id: str,
     ) -> Tuple[Optional[List[Node]],Optional[List[Node]]]:
         """
         SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
@@ -110,7 +110,7 @@ class SBL(PRMBase):
             active_tree: SearchTree,
             passive_tree: SearchTree,
             repair_focus: Optional[List[float]] = None
-        ) -> Optional[int]:
+        ) -> Optional[str]:
         """SBL Tree expansion with adaptive step-size (eta) and local repair sampling.
 
         On collision, shrink eta and retry. On success, grow eta and return the new node.

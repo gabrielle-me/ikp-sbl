@@ -30,7 +30,7 @@ class SearchTree:
         coord_parts = [str(coord).replace('.', '') for coord in position]
         return f"{node_id}{''.join(coord_parts)}"
 
-    def add_node(self, position: List[float], parent: Optional[int]) -> int:
+    def add_node(self, position: List[float], parent: Optional[int]) -> str:
         node_id = self._next_node_id
         node_uid = self._make_node_uid(node_id, position)
         self.graph.add_node(node_uid, pos=position)
