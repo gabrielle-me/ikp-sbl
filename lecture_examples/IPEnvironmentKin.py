@@ -83,6 +83,13 @@ import matplotlib.animation
 from IPython.display import HTML
 
 matplotlib.rcParams['animation.embed_limit'] = 64
+
+def _solution_node_position(planner, node):
+    if hasattr(node, "coordinates"):
+        return np.asarray(node.coordinates)
+    return np.asarray(planner.graph.nodes[node]["pos"])
+
+
 def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=[[-3,3],[-3,3]]):
     _planner = planner
     _environment = environment
@@ -95,7 +102,7 @@ def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=
         ax1 = fig_local.add_subplot(1, 2, 1)
         ax2 = fig_local.add_subplot(1, 2, 2)
         ## get positions for solution
-        solution_pos = [_planner.graph.nodes[node]['pos'] for node in _solution]
+        solution_pos = [_solution_node_position(_planner, node) for node in _solution]
         ## interpolate to obtain a smoother movement
         i_solution_pos = [solution_pos[0]]
         for i in range(1, len(solution_pos)):
