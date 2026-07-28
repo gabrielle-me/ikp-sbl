@@ -350,7 +350,8 @@ class SBL(PRMBase):
         # Return results        
         self.startTree = start_tree
         self.goalTree = goal_tree
-        
+        self.graph = nx.compose(start_tree.graph, goal_tree.graph)
+
         # Always return [] on failure to prevent len() crashing the visualizer!
         if self.stats.success:
             return path
