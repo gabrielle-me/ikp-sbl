@@ -12,15 +12,25 @@ import random
 
 from IPPerfMonitor import IPPerfMonitor
 
+# Import wrapper function to track collision checks
+from modules.TrackedCollisionChecker import TrackedCollisionChecker
+
+# Import class to store path length (euclidean distance)
+from modules.PlannerStats import PlannerStats
+
 class LazyPRM(PRMBase):
 
     def __init__(self, _collChecker):
-        super(LazyPRM, self).__init__(_collChecker)
+        tracked_checker = TrackedCollisionChecker(_collChecker)
+        super(LazyPRM, self).__init__(tracked_checker)
         
         self.graph = nx.Graph()
         self.lastGeneratedNodeNumber = 0
         self.collidingEdges = []
         self.nonCollidingEdges =[]
+
+        # Initialize stats tracking
+        self.stats = PlannerStats()
         
     @IPPerfMonitor
     def _buildRoadmap(self, numNodes, kNearest):
@@ -113,7 +123,7 @@ class LazyPRM(PRMBase):
         maxTry = 0
         while maxTry < config["maxIterations"]: 
             try:
-                path = nx.shortest_path(self.graph,"start","goal")
+                path = nx.shortest_path(self.graph,"start","goal", weight="weight")
             except:
                 self._buildRoadmap(config["updateRoadmapSize"], config["kNearest"])
                 maxTry += 1
@@ -123,8 +133,12 @@ class LazyPRM(PRMBase):
                 continue
             else:
                 #print "Found solution"
+                # Save metrics to stats object
+                self.stats.success = True
+                self.stats.path_length = nx.shortest_path_length(self.graph, "start", "goal", weight="weight")               
                 return path
-            
+        
+        self.stats.success = False    
         return []
 
     

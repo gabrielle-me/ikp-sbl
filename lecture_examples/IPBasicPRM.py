@@ -16,11 +16,22 @@ import math
 # reduce coding effort by using function provided by scipy
 from scipy.spatial.distance import euclidean, cityblock
 
+# Import wrapper function to track collision checks
+from modules.TrackedCollisionChecker import TrackedCollisionChecker
+
+# Import class to store path length (euclidean distance)
+from modules.PlannerStats import PlannerStats
+
 class BasicPRM(IPPRMBase.PRMBase):
 
     def __init__(self, _collChecker):
-        super(BasicPRM, self).__init__(_collChecker)
+        # --- WRAP THE CHECKER BEFORE PASSING TO SUPER() ---
+        tracked_checker = TrackedCollisionChecker(_collChecker)
+        super(BasicPRM, self).__init__(tracked_checker)
         self.graph = nx.Graph()
+
+        # Initialize stats tracking
+        self.stats = PlannerStats()
 
     
     @IPPerfMonitor
@@ -138,7 +149,15 @@ class BasicPRM(IPPRMBase.PRMBase):
                 break
 
         try:
+            # 1. Get the path (list of node IDs)
             path = nx.shortest_path(self.graph, "start", "goal", weight="weight")
-        except:
+            
+            # Save metrics to stats object
+            self.stats.success = True
+            self.stats.path_length = nx.shortest_path_length(self.graph, "start", "goal", weight="weight")
+            
+        except nx.NetworkXNoPath: # It's generally safer to catch the specific exception
+            self.stats.success = False
             return []
-        return path
+            
+        return path # Or return path, path_length if your framework expects it

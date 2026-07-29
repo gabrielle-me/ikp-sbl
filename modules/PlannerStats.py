@@ -19,7 +19,7 @@ class PlannerStats:
     total_nodes_goal_tree: int = 0
     
     # Edges
-    edges_unchecked: int = 0
+    edges_unknown: int = 0
     edges_valid: int = 0
     edges_invalid: int = 0
     
