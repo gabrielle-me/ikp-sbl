@@ -12,7 +12,7 @@ from planners import SBL
 from modules.node import Node
 
 
-def sblVisualize(planner:SBL.BidirectionalSBL,solution:List[Node],ax:Axes, nodeSize: Optional[int] = 100):
+def sblVisualize(planner:SBL.SBL,solution:List[Node],ax:Axes, nodeSize: Optional[int] = 100):
     """ Draw graph, obstacles and solution in a axis environment of matplotib.
     """
     # get a list of positions of all nodes by returning the content of the attribute 'pos'
@@ -37,6 +37,17 @@ def sblVisualize(planner:SBL.BidirectionalSBL,solution:List[Node],ax:Axes, nodeS
         bridge_index=bridge_idx,
         collision=False 
     )
+
+    # Draw any bridge connections that failed during the search
+    if hasattr(planner, "failed_bridges") and planner.failed_bridges:
+        collection = LineCollection(
+            planner.failed_bridges,
+            colors="purple",     # or "red" to match invalid tree branches
+            linewidths=1.5,
+            alpha=0.6,
+            linestyles="--"      # dashed so you know it was a bridge attempt
+        )
+        ax.add_collection(collection)
 
     # Remove ticks/numbers
     ax.set_xticks([])

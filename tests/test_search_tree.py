@@ -1,10 +1,10 @@
-from modules.OLD_search_tree import BidirectionalSBL, SearchTree
+from modules.OLD_search_tree import SBL, SearchTree
 from lecture_examples.IPEnvironment import CollisionChecker
 
 
 def test_grow_trees_handles_no_new_node(monkeypatch):
     checker = CollisionChecker({})
-    planner = BidirectionalSBL(checker)
+    planner = SBL(checker)
 
     monkeypatch.setattr(planner, "_expand_tree", lambda tree, config: None)
 
@@ -21,7 +21,7 @@ def test_grow_trees_handles_no_new_node(monkeypatch):
 
 def test_try_connect_adds_unknown_bridge_edge():
     checker = CollisionChecker({})
-    planner = BidirectionalSBL(checker)
+    planner = SBL(checker)
 
     active_tree = SearchTree([0.0, 0.0])
     active_tree.add_node([1.0, 0.0], parent=0)
