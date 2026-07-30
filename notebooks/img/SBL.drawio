@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0">
   <diagram name="Page-1" id="GkoUfRiM4x9FKYqhRb91">
-    <mxGraphModel dx="640" dy="381" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="818" dy="456" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -280,7 +280,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="oDo96SrNMruLUaS5Cuzs-15" parent="d--HuW1pMzAoe9sq_ZDH-71" style="rhombus;whiteSpace=wrap;html=1;shapeInside=1;" value="any edges unknown?" vertex="1">
-          <mxGeometry height="80" width="80" x="220" y="110" as="geometry" />
+          <mxGeometry height="80" width="80" x="220" y="120" as="geometry" />
         </mxCell>
         <mxCell id="oDo96SrNMruLUaS5Cuzs-17" parent="d--HuW1pMzAoe9sq_ZDH-71" style="rounded=0;whiteSpace=wrap;html=1;" value="return &quot;no collision&quot;" vertex="1">
           <mxGeometry height="60" width="120" x="40" y="360" as="geometry" />
@@ -288,25 +288,42 @@
         <mxCell id="oDo96SrNMruLUaS5Cuzs-18" edge="1" parent="d--HuW1pMzAoe9sq_ZDH-71" source="oDo96SrNMruLUaS5Cuzs-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.547;entryY=-0.028;entryDx=0;entryDy=0;entryPerimeter=0;" target="oDo96SrNMruLUaS5Cuzs-17" value="no">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="oDo96SrNMruLUaS5Cuzs-21" edge="1" parent="d--HuW1pMzAoe9sq_ZDH-71" source="oDo96SrNMruLUaS5Cuzs-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="oDo96SrNMruLUaS5Cuzs-17" value="no collision found">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="oDo96SrNMruLUaS5Cuzs-23" edge="1" parent="d--HuW1pMzAoe9sq_ZDH-71" source="oDo96SrNMruLUaS5Cuzs-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="oDo96SrNMruLUaS5Cuzs-24" value="collision found">
+        <mxCell id="oDo96SrNMruLUaS5Cuzs-23" edge="1" parent="d--HuW1pMzAoe9sq_ZDH-71" source="_8rdz7hct8FCcCrc9I9X-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" target="oDo96SrNMruLUaS5Cuzs-24" value="collision">
           <mxGeometry relative="1" as="geometry">
+            <mxPoint x="380" y="270" as="sourcePoint" />
             <mxPoint x="380" y="270" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="oDo96SrNMruLUaS5Cuzs-19" parent="d--HuW1pMzAoe9sq_ZDH-71" style="rounded=0;whiteSpace=wrap;html=1;" value="loop through unknown edges, break if colliding edge found" vertex="1">
-          <mxGeometry height="60" width="120" x="320" y="185" as="geometry" />
+        <mxCell id="_8rdz7hct8FCcCrc9I9X-2" edge="1" parent="d--HuW1pMzAoe9sq_ZDH-71" source="oDo96SrNMruLUaS5Cuzs-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="_8rdz7hct8FCcCrc9I9X-1" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="oDo96SrNMruLUaS5Cuzs-19" parent="d--HuW1pMzAoe9sq_ZDH-71" style="rounded=0;whiteSpace=wrap;html=1;" value="select next unknown edge" vertex="1">
+          <mxGeometry height="30" width="120" x="320" y="185" as="geometry" />
         </mxCell>
         <mxCell id="oDo96SrNMruLUaS5Cuzs-22" parent="d--HuW1pMzAoe9sq_ZDH-71" style="rounded=0;whiteSpace=wrap;html=1;" value="return &quot;collision&quot;" vertex="1">
-          <mxGeometry height="60" width="120" x="320" y="360" as="geometry" />
+          <mxGeometry height="60" width="120" x="240" y="360" as="geometry" />
         </mxCell>
         <mxCell id="oDo96SrNMruLUaS5Cuzs-26" edge="1" parent="d--HuW1pMzAoe9sq_ZDH-71" source="oDo96SrNMruLUaS5Cuzs-24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="oDo96SrNMruLUaS5Cuzs-22" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="oDo96SrNMruLUaS5Cuzs-24" parent="d--HuW1pMzAoe9sq_ZDH-71" style="rounded=0;whiteSpace=wrap;html=1;" value="invalidate colliding edge" vertex="1">
-          <mxGeometry height="60" width="95" x="332.5" y="280" as="geometry" />
+          <mxGeometry height="40" width="95" x="252.5" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="_8rdz7hct8FCcCrc9I9X-1" parent="d--HuW1pMzAoe9sq_ZDH-71" style="rhombus;whiteSpace=wrap;html=1;shapeInside=1;" value="collision check" vertex="1">
+          <mxGeometry height="40" width="120" x="320" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="_8rdz7hct8FCcCrc9I9X-9" edge="1" parent="d--HuW1pMzAoe9sq_ZDH-71" source="_8rdz7hct8FCcCrc9I9X-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="oDo96SrNMruLUaS5Cuzs-15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="_8rdz7hct8FCcCrc9I9X-7" parent="d--HuW1pMzAoe9sq_ZDH-71" style="rounded=0;whiteSpace=wrap;html=1;" value="mark edge as valid" vertex="1">
+          <mxGeometry height="40" width="95" x="390" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="_8rdz7hct8FCcCrc9I9X-8" edge="1" parent="d--HuW1pMzAoe9sq_ZDH-71" source="_8rdz7hct8FCcCrc9I9X-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.524;entryY=0.01;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="_8rdz7hct8FCcCrc9I9X-7" value="no collision">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="440" y="290" />
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="d--HuW1pMzAoe9sq_ZDH-73" edge="1" parent="1" source="d--HuW1pMzAoe9sq_ZDH-72" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" target="d--HuW1pMzAoe9sq_ZDH-2">
           <mxGeometry relative="1" as="geometry">
