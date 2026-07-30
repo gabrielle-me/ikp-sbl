@@ -84,35 +84,35 @@ from IPython.display import HTML
 
 matplotlib.rcParams['animation.embed_limit'] = 64
 
-def _solution_node_position(planner, node):
-    if hasattr(node, "coordinates"):
-        return np.asarray(node.coordinates)
-    return np.asarray(planner.graph.nodes[node]["pos"])
-
-
 def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=[[-3,3],[-3,3]]):
     _planner = planner
     _environment = environment
     _solution = solution
     _prmVisualizer = visualizer
     
-    if _environment.getDim() == 2:
+    # 1. Prevent IndexError: Check if the solution is empty before proceeding
+    if not _solution:
+        print("Planner returned an empty solution. Skipping animation.")
+        return
+
+    # 2. Prevent KeyError/TypeError: Safely extract the graph key for BOTH cases.
+    solution_pos = [_planner.graph.nodes[getattr(node, 'id', node)]['pos'] for node in _solution]
     
+    ## interpolate to obtain a smoother movement
+    i_solution_pos = [solution_pos[0]]
+    for i in range(1, len(solution_pos)):
+        segment_s = solution_pos[i-1]
+        segment_e = solution_pos[i]
+        i_solution_pos = i_solution_pos + interpolate_line(segment_s, segment_e, 0.1)[1:]
+        
+    frames = len(i_solution_pos)
+    r = environment.kin_chain
+    
+    # Now branch based on dimensions for the actual plotting
+    if _environment.getDim() == 2:
         fig_local = plt.figure(figsize=(14, 7))
         ax1 = fig_local.add_subplot(1, 2, 1)
         ax2 = fig_local.add_subplot(1, 2, 2)
-        ## get positions for solution
-        solution_pos = [_solution_node_position(_planner, node) for node in _solution]
-        ## interpolate to obtain a smoother movement
-        i_solution_pos = [solution_pos[0]]
-        for i in range(1, len(solution_pos)):
-            segment_s = solution_pos[i-1]
-            segment_e = solution_pos[i]
-            i_solution_pos = i_solution_pos + interpolate_line(segment_s, segment_e, 0.1)[1:]
-        ## animate
-        frames = len(i_solution_pos)
-        
-        r = environment.kin_chain
         
         def animate(t):
             ## clear taks space figure
@@ -138,21 +138,10 @@ def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=
         html = HTML(ani.to_jshtml())
         display(html)
         plt.close()
+        
     else:
         fig_local = plt.figure(figsize=(7, 7))
         ax1 = fig_local.add_subplot(1, 1, 1)
-        ## get positions for solution
-        solution_pos = [_planner.graph.nodes[node]['pos'] for node in _solution]
-        ## interpolate to obtain a smoother movement
-        i_solution_pos = [solution_pos[0]]
-        for i in range(1, len(solution_pos)):
-            segment_s = solution_pos[i-1]
-            segment_e = solution_pos[i]
-            i_solution_pos = i_solution_pos + interpolate_line(segment_s, segment_e, 0.1)[1:]
-        ## animate
-        frames = len(i_solution_pos)
-        
-        r = environment.kin_chain
         
         def animate(t):
             ## clear taks space figure
@@ -166,7 +155,6 @@ def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=
             pos = i_solution_pos[t]
             r.move(pos)
             planarRobotVisualize(r, ax1)
-        
         
         ani = matplotlib.animation.FuncAnimation(fig_local, animate, frames=frames)
         html = HTML(ani.to_jshtml())
