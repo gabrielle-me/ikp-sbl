@@ -467,8 +467,6 @@ class SBL(PRMBase):
 
             # Check if edge was already validated (same tree)
             tree = tree_start if node1.tree == "start" else tree_goal
-            # Check if edge was already validated (same tree)
-            tree = tree_start if node1.tree == "start" else tree_goal
             
             # Prevent KeyErrors if the edge or status isn't initialized yet
             if not tree.graph.has_edge(node1.id, node2.id):
@@ -480,8 +478,6 @@ class SBL(PRMBase):
                 continue
             elif edge_status == "invalid":
                 raise RuntimeError(f"Candidate path contains invalid edge {node1} - {node2}")
-                repair_focus = node1.coordinates.tolist()
-                return True, node_idx, tree_start, tree_goal, repair_focus
             else:
                 unchecked_nodes.append((node_idx, node1, node2))
         
