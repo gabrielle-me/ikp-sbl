@@ -6,8 +6,8 @@ Author: Gergely Soti, adapted by Bjoern Hein
 
 License is based on Creative Commons: Attribution-NonCommercial 4.0 International (CC BY-NC 4.0) (pls. check: http://creativecommons.org/licenses/by-nc/4.0/)
 """
-from IPPlanarManipulator import PlanarJoint, PlanarRobot
-from IPEnvironment import CollisionChecker
+from lecture_examples.IPPlanarManipulator import PlanarJoint, PlanarRobot
+from lecture_examples.IPEnvironment import CollisionChecker
 from shapely.geometry import Point, Polygon, LineString
 from shapely import plotting
 import numpy as np

@@ -7,13 +7,13 @@ License is based on Creative Commons: Attribution-NonCommercial 4.0 Internationa
 """
 
 from scipy.spatial import cKDTree
-from IPPRMBase import PRMBase
+from lecture_examples.IPPRMBase import PRMBase
 import numpy as np
 
 import networkx as nx
 import random
 
-from IPPerfMonitor import IPPerfMonitor
+from lecture_examples.IPPerfMonitor import IPPerfMonitor
 
 # Import wrapper function to track collision checks
 from modules.TrackedCollisionChecker import TrackedCollisionChecker

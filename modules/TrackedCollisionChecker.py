@@ -1,5 +1,5 @@
 # TrackedCollisionChecker.py
-from IPPerfMonitor import IPPerfMonitor
+from lecture_examples.IPPerfMonitor import IPPerfMonitor
 
 class TrackedCollisionChecker:
     """ 
