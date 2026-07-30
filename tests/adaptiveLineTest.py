@@ -11,9 +11,9 @@ sys.path.insert(0, str(REPO_ROOT))
 REPO_ROOT
 from modules.adaptiveLocalCollisionCheck import *
 from lecture_examples.IPEnvironment import CollisionChecker
-from modules.IPVISsbl import draw_obstacles
+from modules.SBLvis import draw_obstacles
 
-scene = {"wall": Polygon([(5, 5), (5, 15), (15, 15), (15, 5)])}
+scene = {"wall": Polygon([(5, 5), (5, 10), (10, 10), (10, 5)])}
     
 checker = CollisionChecker(scene)
 node1 = np.array([5.3,4])
@@ -21,7 +21,7 @@ node2 = np.array([4,10])
 
 max_checked_points = 50
 
-def unit_test():
+def unit_test(filepath: Optional[str] = None):
     fig,ax = plt.subplots(figsize=(5,5))
 
     epsilon = np.linalg.norm(node1-node2) / 50
@@ -37,5 +37,7 @@ def unit_test():
 
     ax.tick_params(axis="both", which="both", length=0)
     ax.set_aspect("equal", adjustable="box")
-    ax.legend(loc="upper left")
+    ax.legend(loc="upper right")
     plt.show()
+    if filepath:
+        plt.savefig(filepath+"/adaptiveLineTest.svg")

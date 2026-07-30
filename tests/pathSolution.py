@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -10,13 +11,13 @@ REPO_ROOT
 
 # Import custom modules
 from planners.SBL import SBL
-from modules import randomScene, IPVISsbl
+from modules import SBLvis, randomScene
 from lecture_examples.IPPerfMonitor import IPPerfMonitor
 
 SCENE_LIMITS = np.array([[0,22],[0,22]])
 STEPS = 50
 
-def validate(n_scenes:int=200):
+def validate(n_scenes:Optional[int]=200, filepath:Optional[str]=None):
     fig,ax = plt.subplots(figsize=(5,5))
     time_naive = 0.
     n_naive = 0
@@ -69,7 +70,7 @@ def validate(n_scenes:int=200):
                 if SHOW_MISSED_COLLISIONS:
                     fig = plt.figure(figsize=(10, 10))
                     ax = fig.add_subplot(1, 1, 1)
-                    IPVISsbl.sblVisualize(planner_adaptive,path_adaptive,ax)
+                    SBLvis.sblVisualize(planner_adaptive,path_adaptive,ax)
                     ax.set_title(f"Colliding edges {colliding_edges}")
                     plt.show()
         else:
@@ -88,4 +89,6 @@ def validate(n_scenes:int=200):
     plt.title(f"Edge collision check: {np.round((1-time_avg_adaptive/time_avg_naive)*100,2)}% time saving in adaptive mode")
     plt.ylabel("Duration per edge / ms")
     plt.show()
+    if filepath:
+        plt.savefig(filepath+"/naive-adaptive_Linetest.svg")
     
