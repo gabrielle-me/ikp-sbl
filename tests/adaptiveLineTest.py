@@ -21,7 +21,7 @@ node2 = np.array([4,10])
 
 max_checked_points = 50
 
-def unit_test():
+def unit_test(filepath: Optional[str] = None):
     fig,ax = plt.subplots(figsize=(5,5))
 
     epsilon = np.linalg.norm(node1-node2) / 50
@@ -39,3 +39,5 @@ def unit_test():
     ax.set_aspect("equal", adjustable="box")
     ax.legend(loc="upper right")
     plt.show()
+    if filepath:
+        plt.savefig(filepath+"/adaptiveLineTest.svg")
