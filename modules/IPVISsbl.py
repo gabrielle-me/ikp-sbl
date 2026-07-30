@@ -12,7 +12,7 @@ from planners import SBL
 from modules.node import Node
 
 
-def sblVisualize(planner:SBL.BidirectionalSBL,solution:List[Node],ax:Axes, nodeSize: Optional[int] = 100):
+def sblVisualize(planner:SBL.SBL,solution:List[Node],ax:Axes, nodeSize: Optional[int] = 100):
     """ Draw graph, obstacles and solution in a axis environment of matplotib.
     """
     # get a list of positions of all nodes by returning the content of the attribute 'pos'

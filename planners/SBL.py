@@ -24,7 +24,7 @@ from modules.adaptiveLocalCollisionCheck import LineChecker, AdaptiveLineChecker
 from modules.PlannerStats import PlannerStats
 
 
-class BidirectionalSBL(PRMBase):
+class SBL(PRMBase):
     """SBL planner that grows two trees lazily without local collision checking."""
 
     DEFAULT_CONFIG = {
@@ -49,7 +49,7 @@ class BidirectionalSBL(PRMBase):
 
     def __init__(self, coll_checker: IPEnvironment.CollisionChecker, config: Optional[Dict[str,Number]] = {}):
         self.config =  self._merge_config(config)
-        super(BidirectionalSBL, self).__init__(coll_checker)
+        super(SBL, self).__init__(coll_checker)
         
         # Initialize attributes so they always exist for the visualizer
         self.startTree = None
@@ -60,7 +60,7 @@ class BidirectionalSBL(PRMBase):
     
     @staticmethod
     def _merge_config(config: Optional[Dict[str, Number]]) -> Dict[str, Number]:
-        merged = BidirectionalSBL.DEFAULT_CONFIG.copy()
+        merged = SBL.DEFAULT_CONFIG.copy()
         if config:
             merged.update(config)
         return merged
@@ -69,7 +69,7 @@ class BidirectionalSBL(PRMBase):
         self,
         active_tree: SearchTree,
         passive_tree: SearchTree,
-        new_node_id: int,
+        new_node_id: str,
     ) -> Tuple[Optional[List[Node]],Optional[List[Node]]]:
         """
         SBL: Connect v (most recent node in active tree) to closest v' in passive tree.
@@ -110,7 +110,7 @@ class BidirectionalSBL(PRMBase):
             active_tree: SearchTree,
             passive_tree: SearchTree,
             repair_focus: Optional[List[float]] = None
-        ) -> Optional[int]:
+        ) -> Optional[str]:
         """SBL Tree expansion with adaptive step-size (eta) and local repair sampling.
 
         On collision, shrink eta and retry. On success, grow eta and return the new node.
@@ -151,7 +151,7 @@ class BidirectionalSBL(PRMBase):
             v_pos = np.array(active_tree.position(v_id), dtype=float)
 
             # Expand with step size eta
-            if distance <= eta:
+            if distance < eta:
                 q_new = q_rand
             else:
                 direction = (q_rand - v_pos) / distance
@@ -477,6 +477,7 @@ class BidirectionalSBL(PRMBase):
             if edge_status == "valid":
                 continue
             elif edge_status == "invalid":
+                raise RuntimeError(f"Candidate path contains invalid edge {node1} - {node2}")
                 repair_focus = node1.coordinates.tolist()
                 return True, node_idx, tree_start, tree_goal, repair_focus
             else:
