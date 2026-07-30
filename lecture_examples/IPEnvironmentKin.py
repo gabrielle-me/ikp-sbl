@@ -84,7 +84,8 @@ from IPython.display import HTML
 
 matplotlib.rcParams['animation.embed_limit'] = 64
 
-def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=[[-3,3],[-3,3]]):
+
+def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=[[-3,3],[-3,3]], save_path=None):
     _planner = planner
     _environment = environment
     _solution = solution
@@ -135,6 +136,13 @@ def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=
             ax2.scatter(i_solution_pos[t][0], i_solution_pos[t][1], color='r', zorder=10, s=250)
 
         ani = matplotlib.animation.FuncAnimation(fig_local, animate, frames=frames)
+        
+        # --- NEW CODE FOR SAVING ---
+        if save_path:
+            print(f"Saving animation to {save_path}...")
+            ani.save(save_path)
+        # ---------------------------
+        
         html = HTML(ani.to_jshtml())
         display(html)
         plt.close()
@@ -157,6 +165,13 @@ def animateSolution(planner, environment, solution, visualizer, workSpaceLimits=
             planarRobotVisualize(r, ax1)
         
         ani = matplotlib.animation.FuncAnimation(fig_local, animate, frames=frames)
+        
+        # --- NEW CODE FOR SAVING ---
+        if save_path:
+            print(f"Saving animation to {save_path}...")
+            ani.save(save_path)
+        # ---------------------------
+        
         html = HTML(ani.to_jshtml())
         display(html)
         plt.close()
