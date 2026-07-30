@@ -56,6 +56,7 @@ class SBL(PRMBase):
         self.goalTree = None
         self.collision_check_counter = {}
         self._collisionCheckFun = [LineChecker(coll_checker, self.config["collision_check"]), AdaptiveLineChecker(coll_checker, self.config["collision_check"])][self.config["collision_check"]["adaptive"]]
+        self.failed_bridges = []
                                        
     
     @staticmethod
@@ -343,7 +344,7 @@ class SBL(PRMBase):
         for tree in [start_tree, goal_tree]:
             for u, v, data in tree.graph.edges(data=True):
                 status = data.get("status", "unknown")
-                if status == "unknown": self.stats.edges_unchecked += 1
+                if status == "unknown": self.stats.edges_unknown += 1
                 elif status == "valid": self.stats.edges_valid += 1
                 elif status == "invalid": self.stats.edges_invalid += 1
 
@@ -529,6 +530,12 @@ class SBL(PRMBase):
                 # Collision on the bridge connecting the two trees
                 if collision:
                     repair_focus = node1.coordinates.tolist()
+                    
+                    # Track the failed bridge for the visualizer
+                    self.failed_bridges.append([
+                        node1.coordinates, 
+                        node2.coordinates
+                    ])
 
             # return if collision found
             if collision:
