@@ -10,7 +10,7 @@ REPO_ROOT
 
 # Import custom modules
 from planners.SBL import SBL
-from modules import randomScene, IPVISsbl
+from modules import SBLvis, randomScene
 from lecture_examples.IPPerfMonitor import IPPerfMonitor
 
 SCENE_LIMITS = np.array([[0,22],[0,22]])
@@ -69,7 +69,7 @@ def validate(n_scenes:int=200):
                 if SHOW_MISSED_COLLISIONS:
                     fig = plt.figure(figsize=(10, 10))
                     ax = fig.add_subplot(1, 1, 1)
-                    IPVISsbl.sblVisualize(planner_adaptive,path_adaptive,ax)
+                    SBLvis.sblVisualize(planner_adaptive,path_adaptive,ax)
                     ax.set_title(f"Colliding edges {colliding_edges}")
                     plt.show()
         else:

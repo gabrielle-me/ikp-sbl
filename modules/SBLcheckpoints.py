@@ -13,10 +13,10 @@ import ipywidgets as widgets
 from IPython.display import display
 
 from modules.SearchTree import SearchTree
-from modules import IPVISsbl
+from modules import SBLvis
 
 
-def load_sbl_checkpoints(checkpoint_path: str) -> Dict[str, Any]:
+def load_SBLcheckpoints(checkpoint_path: str) -> Dict[str, Any]:
     path = Path(checkpoint_path)
     with path.open("r", encoding="utf-8") as file_handle:
         payload = json.load(file_handle)
@@ -76,8 +76,8 @@ def _draw_checkpoint_frame(
 ):
     ax.cla()
     if scene is not None:
-        IPVISsbl.draw_obstacles(ax, scene)
-    IPVISsbl.plot_iteration(
+        SBLvis.draw_obstacles(ax, scene)
+    SBLvis.plot_iteration(
         ax,
         frame["start_tree"],
         frame["goal_tree"],
@@ -102,7 +102,7 @@ def export_gif(
     fps: int = 1,
 ) -> Path:
     """Export a recorded SBL checkpoint sequence as an animated GIF."""
-    checkpoint_data = load_sbl_checkpoints(checkpoint_path)
+    checkpoint_data = load_SBLcheckpoints(checkpoint_path)
     frames = checkpoint_data["frames"]
     if not frames:
         raise ValueError(f"No frames found in checkpoint file: {checkpoint_path}")
@@ -129,7 +129,7 @@ def animate(
     scene_limits: Optional[np.ndarray] = None,
 ):
     """Create an interactive notebook viewer for recorded SBL checkpoints."""
-    checkpoint_data = load_sbl_checkpoints(checkpoint_path)
+    checkpoint_data = load_SBLcheckpoints(checkpoint_path)
     frames = checkpoint_data["frames"]
     if not frames:
         raise ValueError(f"No frames found in checkpoint file: {checkpoint_path}")

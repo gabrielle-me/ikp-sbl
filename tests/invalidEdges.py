@@ -11,13 +11,13 @@ REPO_ROOT
 # Import custom modules
 from planners.SBL import SBL
 from lecture_examples.IPEnvironment import CollisionChecker
-from modules import IPVISsbl
+from modules import SBLvis
 
 # Set global variables for better overview and easier adjustments
 START = [1.0, 1.0] # Start position
 GOAL = [3.0, 1.0] # Goal position
 SCENE_LIMITS = np.array([[0,22],[0,22]])
-CHECKPOINT_PATH = REPO_ROOT / "checkpoints" / "sbl_checkpoints.json"
+CHECKPOINT_PATH = REPO_ROOT / "checkpoints" / "SBLcheckpoints.json"
 GIF_PATH = REPO_ROOT / "gifs"
 
 def validate():
@@ -33,4 +33,4 @@ def validate():
         start_tree, goal_tree, start_path, goal_path = planner.iterate_trees(start_tree,goal_tree)
         if start_path and goal_path:
             break
-    IPVISsbl.plot_iteration(ax,start_tree,goal_tree,start_path+goal_path[::-1],bridge_index=len(start_path)-1)
+    SBLvis.plot_iteration(ax,start_tree,goal_tree,start_path+goal_path[::-1],bridge_index=len(start_path)-1)
