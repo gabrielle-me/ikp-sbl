@@ -5,7 +5,7 @@ import numpy as np
 from typing import Dict, Optional, Tuple
 
 
-np.random.seed(20)
+np.random.seed(10)
 
 
 from lecture_examples.IPBenchmark import Benchmark

@@ -45,6 +45,7 @@ class SBL(PRMBase):
         "repair_bias": 0.6,    # Probability to sample near a broken path
         "count_edge_checks": False,
         "checkpoint_path": None,
+        "show_progress": False, # Set to True to print loading bar for each iteration
     }
 
     def __init__(self, coll_checker: IPEnvironment.CollisionChecker, config: Optional[Dict[str,Number]] = {}):
@@ -275,7 +276,7 @@ class SBL(PRMBase):
         
         repair_focus = None
 
-        for n_iter in tqdm(range(self.config["iterations"])):
+        for n_iter in tqdm(range(self.config["iterations"]), disable=not self.config.get("show_progress", False)):
             
             # Pass repair_focus to iteration
             start_tree, goal_tree, start_path, goal_path = self.iterate_trees(tree_start, tree_goal, repair_focus)

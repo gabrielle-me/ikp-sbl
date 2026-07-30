@@ -71,8 +71,8 @@ my_random_benchmark = create_random_benchmark(
     name="Random Map",
     level=2,
     n_polygons=6,
-    n_strings=3,
-    n_points=6
+    n_strings=2,
+    n_points=4
 )
 
 # Add random map to the benchmark list
