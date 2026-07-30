@@ -12,3 +12,4 @@ jupyter
 ipykernel
 tqdm
 sympy
+tabulate
